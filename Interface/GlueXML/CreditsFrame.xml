@@ -6,18 +6,6 @@
 	<!-- Octo templates: buttons built purely in Lua do not render in this
 	     glue VM (template-inherited ones do), so the reorder arrows and
 	     challenge icons inherit these. -->
-	<Button name="OctoArrowUpTemplate" virtual="true">
-		<Size><AbsDimension x="16" y="16"/></Size>
-		<NormalTexture file="Interface\ChatFrame\UI-ChatIcon-ScrollUp-Up"/>
-		<PushedTexture file="Interface\ChatFrame\UI-ChatIcon-ScrollUp-Down"/>
-		<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD"/>
-	</Button>
-	<Button name="OctoArrowDownTemplate" virtual="true">
-		<Size><AbsDimension x="16" y="16"/></Size>
-		<NormalTexture file="Interface\ChatFrame\UI-ChatIcon-ScrollDown-Up"/>
-		<PushedTexture file="Interface\ChatFrame\UI-ChatIcon-ScrollDown-Down"/>
-		<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD"/>
-	</Button>
 	<Button name="OctoChalIconTemplate" virtual="true">
 		<Size><AbsDimension x="16" y="16"/></Size>
 		<HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD"/>

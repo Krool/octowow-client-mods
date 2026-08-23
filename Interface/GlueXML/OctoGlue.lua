@@ -33,7 +33,7 @@
 
 -- ---------------------------------------------------------------- OctoDiag --
 -- On-screen diagnostics. Remove once everything is confirmed working.
-local OCTO_VERSION = "v11"
+local OCTO_VERSION = "v12"
 local diagStrings = {}
 local diagLines = { "OctoGlue " .. OCTO_VERSION .. " loaded" }
 
@@ -203,8 +203,12 @@ local reorderArrows = {}
 
 local function Reorder_MakeArrow(slot, parent, dir, yOff)
 	local name = "OctoReorder" .. (dir < 0 and "Up" or "Down") .. slot
-	local template = dir < 0 and "OctoArrowUpTemplate" or "OctoArrowDownTemplate"
+	-- The stock glue scrollbar button templates provably render at this
+	-- screen (every glue scroll frame uses them).
+	local template = dir < 0 and "GlueScrollUpButtonTemplate" or "GlueScrollDownButtonTemplate"
 	local b = CreateFrame("Button", name, parent, template)
+	b:SetWidth(18)
+	b:SetHeight(18)
 	b:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -3, yOff)
 	b:SetFrameLevel(parent:GetFrameLevel() + 2)
 	b:SetScript("OnClick", function()
@@ -285,7 +289,9 @@ local function Chal_EnsureIcon(slot, j)
 		local b = CreateFrame("Button", "OctoChalIcon" .. slot .. "_" .. j, parent, "OctoChalIconTemplate")
 		local col = math.mod(j - 1, 7)
 		local row = math.floor((j - 1) / 7)
-		b:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -22 - col * 18, 6 + row * 18)
+		-- The bottom 15px of each 70px row is hit-rect inset (dead art zone),
+		-- so sit above it or the icons look like they belong to the next row.
+		b:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -24 - col * 18, 20 + row * 18)
 		b:SetFrameLevel(parent:GetFrameLevel() + 2)
 		-- Closures over the button rather than `this` (glue handler
 		-- convention for `this` in SetScript'd closures is unverified).
@@ -328,6 +334,79 @@ local function Chal_UpdateRow(slot, charName)
 		for j = shown + 1, table.getn(rowChalIcons[slot]) do
 			rowChalIcons[slot][j]:Hide()
 		end
+	end
+end
+
+-- Selected-character challenge panel on the LEFT side of the screen:
+-- larger icons under a "Challenges" header, refreshed on every selection
+-- change.
+local selHeader = nil
+local selIcons = {}
+
+local function Sel_EnsureHeader()
+	if not selHeader and CharacterSelectUI then
+		selHeader = CharacterSelectUI:CreateFontString(nil, "OVERLAY", "GlueFontNormalLarge")
+		selHeader:SetPoint("TOPLEFT", CharacterSelectUI, "TOPLEFT", 26, -170)
+		selHeader:SetText(CHALLENGES or "Challenges")
+		selHeader:Hide()
+	end
+	return selHeader
+end
+
+local function Sel_EnsureIcon(j)
+	if not selIcons[j] then
+		local b = CreateFrame("Button", "OctoSelChal" .. j, CharacterSelectUI, "OctoChalIconTemplate")
+		b:SetWidth(32)
+		b:SetHeight(32)
+		local col = math.mod(j - 1, 4)
+		local row = math.floor((j - 1) / 4)
+		b:SetPoint("TOPLEFT", CharacterSelectUI, "TOPLEFT", 26 + col * 36, -196 - row * 36)
+		b:SetScript("OnEnter", function()
+			if ChallengesTooltip and ChallengesTooltip_Update and b.chalName then
+				ChallengesTooltip:ClearAllPoints()
+				ChallengesTooltip:SetPoint("TOPLEFT", b, "TOPRIGHT", 10, 0)
+				ChallengesTooltip_Update(b.chalName, b.chalText or "")
+				ChallengesTooltip:Show()
+			end
+		end)
+		b:SetScript("OnLeave", function()
+			if ChallengesTooltip then
+				ChallengesTooltip:Hide()
+			end
+		end)
+		selIcons[j] = b
+	end
+	return selIcons[j]
+end
+
+local function Sel_Update()
+	local shown = 0
+	local name = GetCharacterInfo(CharacterSelect.selectedIndex)
+	local mask = Chal_MaskForName(name)
+	if mask and mask > 0 then
+		local bit = 1
+		for i = 1, table.getn(ROW_CHALLENGES) do
+			if math.mod(mask, bit * 2) >= bit then
+				shown = shown + 1
+				local b = Sel_EnsureIcon(shown)
+				b:SetNormalTexture("Interface\\Icons\\" .. ROW_CHALLENGES[i].icon)
+				b.chalName = ROW_CHALLENGES[i].name
+				b.chalText = ROW_CHALLENGES[i].text
+				b:Show()
+			end
+			bit = bit * 2
+		end
+	end
+	local h = Sel_EnsureHeader()
+	if h then
+		if shown > 0 then
+			h:Show()
+		else
+			h:Hide()
+		end
+	end
+	for j = shown + 1, table.getn(selIcons) do
+		selIcons[j]:Hide()
 	end
 end
 
@@ -380,6 +459,8 @@ function UpdateCharacterSelection()
 	if ( (index > 0) and (index <= MAX_CHARACTERS_DISPLAYED) )then
 		_G["CharSelectCharacterButton"..index]:LockHighlight();
 	end
+
+	Octo_Try("sel-chal", Sel_Update); -- OctoChal: left-side panel
 end
 
 function UpdateCharacterList()
