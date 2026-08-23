@@ -120,7 +120,7 @@ end
 -- On-screen diagnostics (font strings render even where frames misbehave).
 -- Shows load state and traps errors from widget creation so failures are
 -- visible instead of silent. Remove once everything is confirmed working.
-local OCTO_VERSION = "v8"
+local OCTO_VERSION = "v9"
 local diagStrings = {}
 local diagLines = { "OctoGlue " .. OCTO_VERSION .. " loaded" }
 
@@ -724,16 +724,24 @@ end
 local function Status_EnsureBanner()
 	if not statusBanner then
 		statusBanner = Status_Parent():CreateFontString("OctoStatusBanner", "OVERLAY", "GlueFontNormalLarge")
-		statusBanner:SetPoint("TOP", Status_Parent(), "TOP", 0, -90)
+		statusBanner:SetPoint("TOPRIGHT", Status_Parent(), "TOPRIGHT", -20, -20)
+		statusBanner:SetJustifyH("RIGHT")
 		statusBanner:Hide()
 	end
 	return statusBanner
 end
 
+local function Status_MarkChecking()
+	local b = Status_EnsureBanner()
+	b:SetTextColor(1, 0.82, 0)
+	b:SetText("Checking OctoWoW...")
+	b:Show()
+end
+
 local function Status_MarkDown()
 	local b = Status_EnsureBanner()
 	b:SetTextColor(1, 0.15, 0.15)
-	b:SetText("OctoWoW appears to be DOWN\n(last connection attempt failed)")
+	b:SetText("OctoWoW appears DOWN\n(no answer within 1s)")
 	b:Show()
 end
 
@@ -741,40 +749,79 @@ local function Status_MarkUp(announce)
 	if announce then
 		local b = Status_EnsureBanner()
 		b:SetTextColor(0.1, 1, 0.1)
-		b:SetText("OctoWoW is UP\n(the server answered)")
+		b:SetText("OctoWoW is UP")
 		b:Show()
 	elseif statusBanner then
 		statusBanner:Hide()
 	end
 end
 
--- "Check Server" probe: connect with a throwaway account. A connection
--- failure means down; an auth-level rejection ("information not valid",
--- banned, etc.) means the server answered, so it is up. While probing, the
--- final result dialog is converted into the banner instead of being shown.
+-- Quick "ping": connect with a throwaway account, judge by what comes back
+-- and how fast. A connection failure or silence past the timeout means down;
+-- an auth-level rejection ("information not valid", banned, etc.) means the
+-- server answered, so it is up. ALL status/result dialogs are swallowed
+-- while probing - no Connecting/Cancel popup, just the corner banner.
+-- On timeout the pending attempt is aborted; `probing` intentionally stays
+-- set so any late dialogs from the aborted attempt are still swallowed (a
+-- real Login click or a verdict clears it).
+local PROBE_TIMEOUT = 1.2
+
+local probeTimer = CreateFrame("Frame")
+probeTimer.elapsed = 0
+probeTimer:Hide()
+probeTimer:SetScript("OnUpdate", function()
+	probeTimer.elapsed = probeTimer.elapsed + (arg1 or 0.02)
+	if probeTimer.elapsed >= PROBE_TIMEOUT then
+		probeTimer:Hide()
+		if probing then
+			Status_MarkDown()
+			if type(DisconnectFromServer) == "function" then
+				DisconnectFromServer()
+			end
+		end
+	end
+end)
+
 function OctoStatus_Probe()
 	probing = true
+	probeTimer.elapsed = 0
+	probeTimer:Show()
+	Status_MarkChecking()
 	DefaultServerLogin("octoprobe", "probe")
 end
 
 local Octo_OrigGlueDialog_Show = GlueDialog_Show
 function GlueDialog_Show(which, text, data)
+	if probing then
+		if text and DOWN_MESSAGES[text] then
+			probing = false
+			probeTimer:Hide()
+			Status_MarkDown()
+		elseif text and UP_MESSAGES[text] then
+			probing = false
+			probeTimer:Hide()
+			Status_MarkUp(true)
+		end
+		return -- swallow every dialog during a probe (no Connecting/Cancel)
+	end
 	if text and DOWN_MESSAGES[text] then
 		Status_MarkDown()
-		if probing then
-			probing = false
-			if GlueDialog then GlueDialog:Hide() end
-			return
-		end
-	elseif text and UP_MESSAGES[text] then
-		if probing then
-			probing = false
-			Status_MarkUp(true)
-			if GlueDialog then GlueDialog:Hide() end
-			return
-		end
 	end
 	return Octo_OrigGlueDialog_Show(which, text, data)
+end
+
+-- Auto-check once when the login screen first shows, so the corner status
+-- is populated without clicking anything.
+local autoProbed = false
+if type(AccountLogin_OnShow) == "function" then
+	local Octo_OrigAccountLogin_OnShow = AccountLogin_OnShow
+	function AccountLogin_OnShow()
+		Octo_OrigAccountLogin_OnShow()
+		if not autoProbed then
+			autoProbed = true
+			OctoStatus_Probe()
+		end
+	end
 end
 
 -- A real login click ends any dangling probe state (e.g. after the user
@@ -798,7 +845,7 @@ Octo_Try("check-btn", function()
 	local parent = Status_Parent()
 	if parent and not _G["OctoStatusCheckButton"] then
 		local b = CreateFrame("Button", "OctoStatusCheckButton", parent, "GlueButtonSmallTemplate")
-		b:SetPoint("TOP", parent, "TOP", 0, -130)
+		b:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -20, -75)
 		b:SetFrameLevel(parent:GetFrameLevel() + 2)
 		b:SetText("Check Server")
 		b:SetScript("OnClick", function()
