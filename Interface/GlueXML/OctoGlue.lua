@@ -450,8 +450,10 @@ end
 
 -- Both screens already exist by the time this file loads (CreditsFrame.xml
 -- comes after AccountLogin.xml and CharacterSelect.xml in GlueXML.toc).
+-- NOTE: AccountLogin is a ModelFFX (the 3D background); interactive children
+-- must be parented to its AccountLoginUI child or the model swallows them.
 if Octo_CanPersist() then
-	OctoSound_MakeOpenButton("OctoSoundOpenLogin", AccountLogin, "BOTTOMLEFT", 16, 16)
+	OctoSound_MakeOpenButton("OctoSoundOpenLogin", AccountLoginUI or AccountLogin, "BOTTOMLEFT", 16, 45)
 	OctoSound_MakeOpenButton("OctoSoundOpenCharSelect", CharacterSelectUI, "BOTTOMLEFT", 16, 60)
 end
 
@@ -621,17 +623,31 @@ end
 -- character select clears it. GlueDialog_Show is plain Lua (GlueDialog.lua,
 -- loaded before this file), so wrapping it is safe.
 local statusBanner = nil
+local probing = false
+
 local DOWN_MESSAGES = {}
 for _, s in ipairs({ LOGIN_FAILED, LOGIN_SERVER_DOWN, SERVER_DOWN,
 		DISCONNECTED, RESPONSE_DISCONNECTED, CHAR_LOGIN_FAILED }) do
 	DOWN_MESSAGES[s] = true
 end
 
+-- Any of these means the AUTH SERVER ANSWERED (about our throwaway probe
+-- account or a real one) - i.e. the server is reachable and up.
+local UP_MESSAGES = {}
+for _, s in ipairs({ LOGIN_UNKNOWN_ACCOUNT, LOGIN_INCORRECT_PASSWORD,
+		LOGIN_BANNED, LOGIN_SUSPENDED, LOGIN_ALREADYONLINE, LOGIN_DBBUSY,
+		LOGIN_BADVERSION, LOGIN_NOTIME }) do
+	UP_MESSAGES[s] = true
+end
+
+local function Status_Parent()
+	return AccountLoginUI or AccountLogin
+end
+
 local function Status_EnsureBanner()
 	if not statusBanner then
-		statusBanner = AccountLogin:CreateFontString("OctoStatusBanner", "OVERLAY", "GlueFontNormalLarge")
-		statusBanner:SetPoint("TOP", AccountLogin, "TOP", 0, -90)
-		statusBanner:SetTextColor(1, 0.15, 0.15)
+		statusBanner = Status_Parent():CreateFontString("OctoStatusBanner", "OVERLAY", "GlueFontNormalLarge")
+		statusBanner:SetPoint("TOP", Status_Parent(), "TOP", 0, -90)
 		statusBanner:Hide()
 	end
 	return statusBanner
@@ -639,26 +655,76 @@ end
 
 local function Status_MarkDown()
 	local b = Status_EnsureBanner()
+	b:SetTextColor(1, 0.15, 0.15)
 	b:SetText("OctoWoW appears to be DOWN\n(last connection attempt failed)")
 	b:Show()
 end
 
-local function Status_MarkUp()
-	if statusBanner then
+local function Status_MarkUp(announce)
+	if announce then
+		local b = Status_EnsureBanner()
+		b:SetTextColor(0.1, 1, 0.1)
+		b:SetText("OctoWoW is UP\n(the server answered)")
+		b:Show()
+	elseif statusBanner then
 		statusBanner:Hide()
 	end
+end
+
+-- "Check Server" probe: connect with a throwaway account. A connection
+-- failure means down; an auth-level rejection ("information not valid",
+-- banned, etc.) means the server answered, so it is up. While probing, the
+-- final result dialog is converted into the banner instead of being shown.
+function OctoStatus_Probe()
+	probing = true
+	DefaultServerLogin("octoprobe", "probe")
 end
 
 local Octo_OrigGlueDialog_Show = GlueDialog_Show
 function GlueDialog_Show(which, text, data)
 	if text and DOWN_MESSAGES[text] then
 		Status_MarkDown()
+		if probing then
+			probing = false
+			if GlueDialog then GlueDialog:Hide() end
+			return
+		end
+	elseif text and UP_MESSAGES[text] then
+		if probing then
+			probing = false
+			Status_MarkUp(true)
+			if GlueDialog then GlueDialog:Hide() end
+			return
+		end
 	end
 	return Octo_OrigGlueDialog_Show(which, text, data)
 end
 
+-- A real login click ends any dangling probe state (e.g. after the user
+-- cancelled a probe's Connecting dialog).
+if type(AccountLogin_Login) == "function" then
+	local Octo_OrigAccountLogin_Login = AccountLogin_Login
+	function AccountLogin_Login()
+		probing = false
+		return Octo_OrigAccountLogin_Login()
+	end
+end
+
 local Octo_OrigCharacterSelect_OnShow = CharacterSelect_OnShow
 function CharacterSelect_OnShow()
-	Status_MarkUp() -- we connected, so the server is up
+	probing = false
+	Status_MarkUp() -- we connected, so the server is up; clear the banner
 	return Octo_OrigCharacterSelect_OnShow()
+end
+
+do
+	local parent = Status_Parent()
+	if parent and not _G["OctoStatusCheckButton"] then
+		local b = CreateFrame("Button", "OctoStatusCheckButton", parent, "GlueButtonSmallTemplate")
+		b:SetPoint("TOP", parent, "TOP", 0, -130)
+		b:SetText("Check Server")
+		b:SetScript("OnClick", function()
+			OctoStatus_Probe()
+		end)
+	end
 end
