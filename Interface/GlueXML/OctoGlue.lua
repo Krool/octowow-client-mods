@@ -116,6 +116,57 @@ local function Octo_SetSection(key, value)
 	Octo_WritePayload(table.concat(out, ";"))
 end
 
+-- ---------------------------------------------------------------- OctoDiag --
+-- On-screen diagnostics (font strings render even where frames misbehave).
+-- Shows load state and traps errors from widget creation so failures are
+-- visible instead of silent. Remove once everything is confirmed working.
+local OCTO_VERSION = "v6"
+local diagStrings = {}
+local diagLines = { "OctoGlue " .. OCTO_VERSION .. " loaded" }
+
+local function Octo_DiagRender()
+	local text = table.concat(diagLines, "\n")
+	for _, fs in ipairs(diagStrings) do
+		fs:SetText(text)
+	end
+end
+
+local function Octo_Diag(msg)
+	if diagLines[table.getn(diagLines)] == msg then
+		return -- dedupe repeats (list updates fire often)
+	end
+	table.insert(diagLines, msg)
+	Octo_DiagRender()
+end
+
+local function Octo_DiagAttach(parent, point, x, y)
+	if parent then
+		local fs = parent:CreateFontString(nil, "OVERLAY", "GlueFontNormalSmall")
+		fs:SetPoint(point, parent, point, x, y)
+		fs:SetTextColor(1, 0.9, 0.3)
+		fs:SetJustifyH("LEFT")
+		table.insert(diagStrings, fs)
+		Octo_DiagRender()
+	end
+end
+
+-- Safe call: run f, log any error to the diagnostics, return ok.
+local function Octo_Try(label, f, a1, a2)
+	if type(pcall) ~= "function" then
+		f(a1, a2)
+		return true
+	end
+	local ok, err = pcall(f, a1, a2)
+	if not ok then
+		Octo_Diag("ERR " .. label .. ": " .. tostring(err))
+	end
+	return ok
+end
+
+Octo_DiagAttach(AccountLoginUI or AccountLogin, "BOTTOM", 0, 45)
+Octo_DiagAttach(CharacterSelectUI, "TOPLEFT", 16, -120)
+Octo_Diag(type(CreateFrame) == "function" and "CreateFrame: present" or "CreateFrame: MISSING")
+
 -- ------------------------------------------------------------ OctoReorder --
 
 local function Reorder_Save()
@@ -453,8 +504,17 @@ end
 -- NOTE: AccountLogin is a ModelFFX (the 3D background); interactive children
 -- must be parented to its AccountLoginUI child or the model swallows them.
 if Octo_CanPersist() then
-	OctoSound_MakeOpenButton("OctoSoundOpenLogin", AccountLoginUI or AccountLogin, "BOTTOMLEFT", 16, 45)
-	OctoSound_MakeOpenButton("OctoSoundOpenCharSelect", CharacterSelectUI, "BOTTOMLEFT", 16, 60)
+	local ok1 = Octo_Try("sound-btn-login", function()
+		OctoSound_MakeOpenButton("OctoSoundOpenLogin", AccountLoginUI or AccountLogin, "BOTTOMLEFT", 16, 45)
+	end)
+	local ok2 = Octo_Try("sound-btn-charsel", function()
+		OctoSound_MakeOpenButton("OctoSoundOpenCharSelect", CharacterSelectUI, "BOTTOMLEFT", 16, 60)
+	end)
+	if ok1 and ok2 then
+		Octo_Diag("sound buttons created")
+	end
+else
+	Octo_Diag("persistence unavailable (no pcall/SetCVar)")
 end
 
 -- --------------------------- stock function redefinitions ------------------
@@ -545,7 +605,7 @@ function UpdateCharacterList()
 			end
 			_G["CharSelectCharacterButton"..index.."ButtonTextLocation"]:SetText(zone);
 		end
-		Chal_UpdateRow(index, name); -- OctoChal
+		Octo_Try("chal-row", Chal_UpdateRow, index, name); -- OctoChal
 		button:Show();
 
 		index = index + 1;
@@ -554,7 +614,9 @@ function UpdateCharacterList()
 		end
 	end
 
-	Reorder_UpdateArrows(numChars); -- OctoReorder
+	if ( Octo_Try("arrows", Reorder_UpdateArrows, numChars) ) then
+		Octo_Diag("list: " .. numChars .. " chars, arrows ok"); -- OctoReorder
+	end
 
 	if ( numChars == 0 ) then
 		CharacterSelectDeleteButton:Disable();
@@ -717,7 +779,7 @@ function CharacterSelect_OnShow()
 	return Octo_OrigCharacterSelect_OnShow()
 end
 
-do
+Octo_Try("check-btn", function()
 	local parent = Status_Parent()
 	if parent and not _G["OctoStatusCheckButton"] then
 		local b = CreateFrame("Button", "OctoStatusCheckButton", parent, "GlueButtonSmallTemplate")
@@ -727,4 +789,5 @@ do
 			OctoStatus_Probe()
 		end)
 	end
-end
+end)
+Octo_Diag("status section loaded")
