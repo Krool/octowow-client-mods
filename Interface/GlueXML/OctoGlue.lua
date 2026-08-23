@@ -613,3 +613,52 @@ function CharacterSelectButton_OnDoubleClick()
 	end
 	CharacterSelect_EnterWorld();
 end
+
+-- ------------------------------------------------------------- OctoStatus --
+-- "Server down?" banner on the login screen. Glue Lua has no network API,
+-- so this is observational: when the client's own login attempt fails with a
+-- connection-class error (not a bad password), latch a red banner; reaching
+-- character select clears it. GlueDialog_Show is plain Lua (GlueDialog.lua,
+-- loaded before this file), so wrapping it is safe.
+local statusBanner = nil
+local DOWN_MESSAGES = {}
+for _, s in ipairs({ LOGIN_FAILED, LOGIN_SERVER_DOWN, SERVER_DOWN,
+		DISCONNECTED, RESPONSE_DISCONNECTED, CHAR_LOGIN_FAILED }) do
+	DOWN_MESSAGES[s] = true
+end
+
+local function Status_EnsureBanner()
+	if not statusBanner then
+		statusBanner = AccountLogin:CreateFontString("OctoStatusBanner", "OVERLAY", "GlueFontNormalLarge")
+		statusBanner:SetPoint("TOP", AccountLogin, "TOP", 0, -90)
+		statusBanner:SetTextColor(1, 0.15, 0.15)
+		statusBanner:Hide()
+	end
+	return statusBanner
+end
+
+local function Status_MarkDown()
+	local b = Status_EnsureBanner()
+	b:SetText("OctoWoW appears to be DOWN\n(last connection attempt failed)")
+	b:Show()
+end
+
+local function Status_MarkUp()
+	if statusBanner then
+		statusBanner:Hide()
+	end
+end
+
+local Octo_OrigGlueDialog_Show = GlueDialog_Show
+function GlueDialog_Show(which, text, data)
+	if text and DOWN_MESSAGES[text] then
+		Status_MarkDown()
+	end
+	return Octo_OrigGlueDialog_Show(which, text, data)
+end
+
+local Octo_OrigCharacterSelect_OnShow = CharacterSelect_OnShow
+function CharacterSelect_OnShow()
+	Status_MarkUp() -- we connected, so the server is up
+	return Octo_OrigCharacterSelect_OnShow()
+end
