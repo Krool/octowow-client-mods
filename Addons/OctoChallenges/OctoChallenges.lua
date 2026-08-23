@@ -134,61 +134,11 @@ local function Render()
 	end
 end
 
--- --------------------------------------------------- char-select bridge ----
--- The character-select screen (our patch-9 glue mod) never receives challenge
--- data from the server, but cvars are engine-global across the glue<->world
--- boundary. Mirror this character's mask into the shared payload cvar so the
--- glue screen can render challenge icons per character. Payload format:
--- ";"-separated "K=value" sections; section C holds "realm/name:mask" comma
--- entries (section O is the char order, owned by the glue side). The cvar
--- candidates and format must stay in sync with patch-Z-src CharacterSelect.lua.
--- The glue VM has no pcall, so the glue side can only touch a REGISTERED
--- cvar safely; both sides therefore use the stock "accountList" cvar
--- (sub-account list, unused on private servers). Keep in sync with
--- patch-Z-src OctoGlue.lua.
-local OCTO_CVAR = "accountList"
-
-local function Octo_ReadPayload()
-	local ok, s = pcall(GetCVar, OCTO_CVAR)
-	if ok and type(s) == "string" and string.find(s, "^%a=") then
-		return s
-	end
-	return ""
-end
-
-local function Octo_WritePayload(payload)
-	pcall(SetCVar, OCTO_CVAR, payload)
-end
-
-local function Bridge_Store(mask)
-	if type(SetCVar) ~= "function" or type(GetCVar) ~= "function" then return end
-	local realm = GetRealmName()
-	local me = UnitName("player")
-	if not realm or not me then return end
-	local sections, c = {}, nil
-	for sec in string.gfind(Octo_ReadPayload(), "[^;]+") do
-		local _, _, k, v = string.find(sec, "^(%a)=(.*)$")
-		if k == "C" then
-			c = v
-		elseif k then
-			table.insert(sections, sec)
-		end
-	end
-	local entries = {}
-	if c then
-		for entry in string.gfind(c, "[^,]+") do
-			local _, _, r, n = string.find(entry, "^(.*)/(.+):%d+$")
-			if not (r == realm and n == me) then
-				table.insert(entries, entry)
-			end
-		end
-	end
-	if mask and mask > 0 then
-		table.insert(entries, realm .. "/" .. me .. ":" .. mask)
-	end
-	table.insert(sections, "C=" .. table.concat(entries, ","))
-	Octo_WritePayload(table.concat(sections, ";"))
-end
+-- NOTE: no live char-select bridge exists - the glue VM has no cvar API
+-- (established 2026-08-23), so the character-select screen reads challenge
+-- masks BAKED from this addon's SavedVariables by patch-Z-src\build.ps1.
+-- This addon only needs to keep OctoChallengesDB.mask current; SavedVariables
+-- flush to disk on logout/exit, then a rebuild refreshes the select screen.
 
 -- ------------------------------------------------------------ protocol ------
 
@@ -226,9 +176,6 @@ handler:SetScript("OnEvent", function()
 		if not OctoChallengesDB then OctoChallengesDB = {} end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		Render() -- cached mask from a previous session, if any
-		if OctoChallengesDB and OctoChallengesDB.mask then
-			Bridge_Store(OctoChallengesDB.mask) -- re-seed the glue bridge cvar
-		end
 		RequestChallenges()
 	elseif event == "CHAT_MSG_ADDON" and arg1 == "RESPONSE_PLAYER_CHALLENGES" then
 		local _, _, guid, mask = string.find(arg2 or "", "^(.+):(%d+)$")
@@ -236,7 +183,6 @@ handler:SetScript("OnEvent", function()
 			gotResponse = true
 			if not OctoChallengesDB then OctoChallengesDB = {} end
 			OctoChallengesDB.mask = tonumber(mask)
-			Bridge_Store(OctoChallengesDB.mask)
 			Render()
 		end
 	end
