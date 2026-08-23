@@ -33,7 +33,7 @@
 
 -- ---------------------------------------------------------------- OctoDiag --
 -- On-screen diagnostics. Remove once everything is confirmed working.
-local OCTO_VERSION = "v10"
+local OCTO_VERSION = "v11"
 local diagStrings = {}
 local diagLines = { "OctoGlue " .. OCTO_VERSION .. " loaded" }
 
@@ -529,10 +529,17 @@ local function Status_MarkChecking()
 	b:Show()
 end
 
+local function Status_MarkSlow()
+	local b = Status_EnsureBanner()
+	b:SetTextColor(1, 0.55, 0.1)
+	b:SetText("OctoWoW: no answer yet...")
+	b:Show()
+end
+
 local function Status_MarkDown()
 	local b = Status_EnsureBanner()
 	b:SetTextColor(1, 0.15, 0.15)
-	b:SetText("OctoWoW appears DOWN\n(no answer within 1s)")
+	b:SetText("OctoWoW appears DOWN\n(no answer within 5s)")
 	b:Show()
 end
 
@@ -547,23 +554,35 @@ local function Status_MarkUp(announce)
 	end
 end
 
--- On timeout the pending attempt is aborted; `probing` intentionally stays
--- set so late dialogs from the aborted attempt are still swallowed (a real
--- Login click or a verdict clears it).
-local PROBE_TIMEOUT = 1.2
+-- Two-stage verdict: a full auth handshake takes several round-trips, so a
+-- short timeout that ABORTS causes false DOWNs. At the soft mark the banner
+-- turns cautionary but the attempt keeps running; only the hard mark
+-- declares DOWN and aborts. A late auth answer flips the banner to UP.
+-- After the hard abort, `probing` intentionally stays set so late dialogs
+-- from the aborted attempt are still swallowed (a real Login click or a
+-- verdict clears it).
+local PROBE_SOFT = 1.2
+local PROBE_HARD = 5.0
 
 local probeTimer = CreateFrame("Frame")
 probeTimer.elapsed = 0
+probeTimer.softShown = false
 probeTimer:Hide()
 probeTimer:SetScript("OnUpdate", function()
-	probeTimer.elapsed = probeTimer.elapsed + (arg1 or 0.02)
-	if probeTimer.elapsed >= PROBE_TIMEOUT then
+	if not probing then
 		probeTimer:Hide()
-		if probing then
-			Status_MarkDown()
-			if type(DisconnectFromServer) == "function" then
-				DisconnectFromServer()
-			end
+		return
+	end
+	probeTimer.elapsed = probeTimer.elapsed + (arg1 or 0.02)
+	if not probeTimer.softShown and probeTimer.elapsed >= PROBE_SOFT then
+		probeTimer.softShown = true
+		Status_MarkSlow()
+	end
+	if probeTimer.elapsed >= PROBE_HARD then
+		probeTimer:Hide()
+		Status_MarkDown()
+		if type(DisconnectFromServer) == "function" then
+			DisconnectFromServer()
 		end
 	end
 end)
@@ -571,6 +590,7 @@ end)
 function OctoStatus_Probe()
 	probing = true
 	probeTimer.elapsed = 0
+	probeTimer.softShown = false
 	probeTimer:Show()
 	Status_MarkChecking()
 	DefaultServerLogin("octoprobe", "probe")
