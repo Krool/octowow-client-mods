@@ -8,6 +8,12 @@ $wow = Split-Path $src
 $mpq = Join-Path $env:TEMP "patch-9-build.mpq"
 $editor = Join-Path $src "tools\MPQEditor.exe"
 
+# Keep the distribution copy of the addon in sync with the live one.
+$liveAddon = Join-Path $wow "Interface\Addons\OctoChallenges"
+if (Test-Path $liveAddon) {
+    Copy-Item "$liveAddon\OctoChallenges.lua","$liveAddon\OctoChallenges.toc" (Join-Path $src "Addons\OctoChallenges\") -Force
+}
+
 if (Test-Path $mpq) { Remove-Item $mpq -Force }
 & $editor n $mpq | Out-Null
 Get-ChildItem -Recurse -File (Join-Path $src "Interface") | ForEach-Object {

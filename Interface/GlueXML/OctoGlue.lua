@@ -120,7 +120,7 @@ end
 -- On-screen diagnostics (font strings render even where frames misbehave).
 -- Shows load state and traps errors from widget creation so failures are
 -- visible instead of silent. Remove once everything is confirmed working.
-local OCTO_VERSION = "v7"
+local OCTO_VERSION = "v8"
 local diagStrings = {}
 local diagLines = { "OctoGlue " .. OCTO_VERSION .. " loaded" }
 
@@ -345,11 +345,14 @@ local function Chal_EnsureIcon(slot, j)
 		b:SetFrameLevel(parent:GetFrameLevel() + 2)
 		b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
 		b:GetHighlightTexture():SetBlendMode("ADD")
+		-- Closure over the button rather than `this`: the glue VM's SetScript
+		-- handler convention for `this` is unverified, and with no pcall an
+		-- error here would go untrapped.
 		b:SetScript("OnEnter", function()
-			if ChallengesTooltip and ChallengesTooltip_Update and this.chalName then
+			if ChallengesTooltip and ChallengesTooltip_Update and b.chalName then
 				ChallengesTooltip:ClearAllPoints()
-				ChallengesTooltip:SetPoint("TOPRIGHT", this, "TOPLEFT", -10, 0)
-				ChallengesTooltip_Update(this.chalName, this.chalText or "")
+				ChallengesTooltip:SetPoint("TOPRIGHT", b, "TOPLEFT", -10, 0)
+				ChallengesTooltip_Update(b.chalName, b.chalText or "")
 				ChallengesTooltip:Show()
 			end
 		end)
@@ -435,11 +438,12 @@ local function OctoSound_MakeSlider(i, def)
 	valueText:SetPoint("LEFT", slider, "RIGHT", 8, 0)
 
 	local entry = { cvar = def.cvar, slider = slider, valueText = valueText }
+	-- Closure over entry.slider rather than `this` (see Chal_EnsureIcon note).
 	slider:SetScript("OnValueChanged", function()
 		if entry.updating then
 			return
 		end
-		local v = this:GetValue()
+		local v = entry.slider:GetValue()
 		SafeSetCVar(entry.cvar, v)
 		entry.valueText:SetText(math.floor(v * 100 + 0.5) .. "%")
 	end)
@@ -518,6 +522,11 @@ if Octo_CanPersist() then
 	end)
 	if ok1 and ok2 then
 		Octo_Diag("sound buttons created")
+	end
+	-- Build the panel eagerly so any widget-creation failure surfaces in the
+	-- diagnostics at load instead of erroring untrapped on the first click.
+	if Octo_Try("sound-panel", OctoSound_EnsurePanel) then
+		Octo_Diag("sound panel created")
 	end
 else
 	Octo_Diag("persistence unavailable (no pcall/SetCVar)")
