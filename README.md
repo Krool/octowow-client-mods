@@ -13,12 +13,14 @@ Quality-of-life mods for the [OctoWoW](https://octowow.st) 1.12.1 client
   deletes and renames (matching is by character name).
 - **Challenge icons per character** - each row shows the character's active
   leveling challenges (Hardcore, War Mode, Slow & Steady, ...) with the
-  game's own challenge tooltips on hover. A character appears here after you
-  have logged into it once with the OctoChallenges addon installed - the
-  select screen never receives challenge data from the server, so the addon
-  bridges it across.
-- **Sound settings before login** - a "Sound" button on the login screen and
-  on character select opens Music / Effects / Ambience volume sliders.
+  game's own challenge tooltips on hover. The select screen has no live
+  channel to the server, so `build.ps1` bakes the data from the
+  OctoChallenges addon's SavedVariables: log a character out once with the
+  addon installed, run the build, and its row fills in.
+- **Server status** - a dialog-free ~1s probe with an UP/DOWN banner in the
+  top-right corner of the login screen, auto-run at startup, re-run via the
+  Check Server button. (Pre-login sound sliders were dropped: the glue VM
+  exposes no volume APIs - that one needs a DLL.)
 
 ### In-game addon (`Addons/OctoChallenges`)
 - Shows your own active challenges as an icon column on the character
@@ -47,10 +49,12 @@ To uninstall, delete `<WoW>/Data/patch-9.mpq` and the addon folder.
   `OctoGlue.lua`, which redefines the character-select functions after the
   server's own versions have loaded.
 - The character-select screen runs in the glue Lua VM, which addons cannot
-  touch and which gets no challenge data. Cvars are engine-global across the
-  glue/world boundary, so the addon mirrors challenge masks into a cvar
-  payload the glue code reads (the stock, registered `accountList` cvar -
-  the glue VM has no pcall, so only registered cvars are safe there).
+  touch, has NO cvar API, and only renders template-inherited buttons (the
+  templates live in our CreditsFrame.xml). Challenge masks are baked from
+  the addon's SavedVariables at build time; the character order persists as
+  a `#O=...` suffix on the saved account name (`Get/SetSavedAccountName`
+  being the only persistent glue-writable storage), stripped before the
+  login box displays it.
 - Character order is rendered as a display permutation; the server's
   character indices are untouched, so rename/delete/enter-world all keep
   their stock behavior.
