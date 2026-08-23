@@ -18,8 +18,14 @@
 --     (Get/SetSavedAccountName -> Config.wtf). "#" is illegal in account
 --     names, so the character order is stored as a "#O=..." suffix there and
 --     stripped before the login box is filled.
---   * No volume APIs exist in glue - pre-login sound settings would need a
---     DLL and are NOT part of this mod.
+--   * No VOLUME APIs exist in glue (no SetCVar), but the MUSIC transport
+--     does: PlayGlueMusic/StopGlueMusic are called by the stock
+--     GlueParent.lua, so a music on/off toggle is possible - that is what
+--     OctoMusic is. Effects volume would still need a DLL.
+--   * The row highlight texture is anchored 20px LEFT of its button
+--     (TOPLEFT -20, size 256 vs the button's own 256): the button's true
+--     right edge sits 20px PAST the visible plate. Anything right-anchored
+--     to a row must budget that extra 20 or it draws on/over the border.
 --
 -- Features:
 --   * OctoReorder - per-row up/down arrows to rearrange the character list;
@@ -30,10 +36,13 @@
 --     live. Log a character out and rebuild to refresh.
 --   * OctoStatus  - dialog-free ~1s server probe in the top-right corner,
 --     auto-run once at the login screen, re-run via the Check Server button.
+--   * OctoMusic   - "Music: On/Off" toggle (login screen + char select);
+--     shadows PlayGlueMusic so the choice sticks across glue screens, and
+--     persists as a "#M=0" token in the saved-account-name suffix.
 
 -- ---------------------------------------------------------------- OctoDiag --
 -- On-screen diagnostics. Remove once everything is confirmed working.
-local OCTO_VERSION = "v12"
+local OCTO_VERSION = "v13"
 local diagStrings = {}
 local diagLines = { "OctoGlue " .. OCTO_VERSION .. " loaded" }
 
@@ -83,12 +92,15 @@ local HAS_SAVEDNAME = type(GetSavedAccountName) == "function"
 Octo_Diag("SavedAccountName " .. (HAS_SAVEDNAME and "ok" or "MISSING")
 	.. " / baked " .. (type(OCTO_BAKED_CHALLENGES) == "table" and "ok" or "MISSING"))
 
--- ------------------------------------------------------- order persistence --
--- The character order lives after a "#" in the saved account name:
---   "Krool#O=Speakno,Kaboom,..."
--- AccountLogin_OnShow (wrapped below) strips the suffix before the login box
--- shows it; AccountLogin_Login re-appends it after the stock save runs.
+-- ------------------------------------------------------ suffix persistence --
+-- Everything we persist lives after a "#" in the saved account name, as
+-- "#"-separated tokens:
+--   "Krool#O=Speakno,Kaboom,...#M=0"
+-- "#O=" is the character order, "#M=0" means music off. AccountLogin_OnShow
+-- (wrapped below) strips the whole suffix before the login box shows it;
+-- AccountLogin_Login re-appends it after the stock save runs.
 local memoryOrder = nil -- session fallback when SavedAccountName is missing
+local musicOff = false  -- OctoMusic state; loaded from the suffix below
 
 local function Order_SplitSaved()
 	if not HAS_SAVEDNAME then
@@ -105,7 +117,8 @@ end
 local function Order_GetCSV()
 	local _, suffix = Order_SplitSaved()
 	if suffix then
-		local _, _, csv = string.find(suffix, "^#O=(.*)$")
+		-- [^#]* so a following token ("#M=0") cannot leak into the last name.
+		local _, _, csv = string.find(suffix, "#O=([^#]*)")
 		if csv and csv ~= "" then
 			return csv
 		end
@@ -113,8 +126,10 @@ local function Order_GetCSV()
 	return memoryOrder
 end
 
-local function Order_SetCSV(csv)
-	memoryOrder = csv
+-- Rewrite the whole suffix from current state. An order saved by an earlier
+-- session survives a music toggle (and vice versa) because each half falls
+-- back to what is already saved when this session never touched it.
+local function Suffix_Save()
 	if not HAS_SAVEDNAME then
 		return
 	end
@@ -122,7 +137,28 @@ local function Order_SetCSV(csv)
 	if base == "" and AccountLoginAccountEdit and AccountLoginAccountEdit.GetText then
 		base = AccountLoginAccountEdit:GetText() or ""
 	end
-	SetSavedAccountName(base .. "#O=" .. csv)
+	local csv = memoryOrder or Order_GetCSV() -- memory first: it is the newer write
+	local s = base
+	if csv and csv ~= "" then
+		s = s .. "#O=" .. csv
+	end
+	if musicOff then
+		s = s .. "#M=0"
+	end
+	SetSavedAccountName(s)
+end
+
+local function Order_SetCSV(csv)
+	memoryOrder = csv
+	Suffix_Save()
+end
+
+-- Load the music flag once at startup.
+do
+	local _, suffix = Order_SplitSaved()
+	if suffix and string.find(suffix, "#M=0", 1, true) then
+		musicOff = true
+	end
 end
 
 -- ------------------------------------------------------------ OctoReorder --
@@ -209,7 +245,10 @@ local function Reorder_MakeArrow(slot, parent, dir, yOff)
 	local b = CreateFrame("Button", name, parent, template)
 	b:SetWidth(18)
 	b:SetHeight(18)
-	b:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -3, yOff)
+	-- The visible row plate ends 20px LEFT of the button's true right edge
+	-- (highlight texture anchored at -20 - see the header). -23 = 3px inside
+	-- the plate; the old -3 parked the arrows out on the panel border art.
+	b:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -23, yOff)
 	b:SetFrameLevel(parent:GetFrameLevel() + 2)
 	b:SetScript("OnClick", function()
 		Reorder_Move(slot, dir)
@@ -291,7 +330,10 @@ local function Chal_EnsureIcon(slot, j)
 		local row = math.floor((j - 1) / 7)
 		-- The bottom 15px of each 70px row is hit-rect inset (dead art zone),
 		-- so sit above it or the icons look like they belong to the next row.
-		b:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -24 - col * 18, 20 + row * 18)
+		-- -44, not -24: the visible plate ends 20px left of the button's true
+		-- right edge (highlight texture at -20 - see the header), so at -24
+		-- the first icon straddled the row border - "the run off with 5".
+		b:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -44 - col * 18, 20 + row * 18)
 		b:SetFrameLevel(parent:GetFrameLevel() + 2)
 		-- Closures over the button rather than `this` (glue handler
 		-- convention for `this` in SetScript'd closures is unverified).
@@ -589,6 +631,24 @@ for _, s in ipairs({ LOGIN_UNKNOWN_ACCOUNT, LOGIN_INCORRECT_PASSWORD,
 	UP_MESSAGES[s] = true
 end
 
+-- Auth PROGRESS states past the TCP connect. Any of these means the server
+-- answered - even if the bogus probe account then takes ages to be rejected
+-- (auth cores rate-limit failed logins) or the final rejection string is one
+-- we do not know. This is what stopped the false DOWNs: v12 judged only the
+-- FINAL dialog, so a slow rejection ran into the 5s hard mark and the banner
+-- said DOWN while a real login worked fine. "Connecting" is deliberately NOT
+-- in the list - it shows while the connect is still in flight, so it proves
+-- nothing. These arrive via UPDATE_STATUS_DIALOG (which never reaches
+-- GlueDialog_Show), so the probe frame listens for the event itself.
+local ANSWER_MESSAGES = {}
+for _, s in ipairs({ LOGIN_STATE_HANDSHAKING, LOGIN_STATE_AUTHENTICATING,
+		LOGIN_STATE_CHECKINGVERSIONS, LOGIN_STATE_AUTHENTICATED,
+		LOGIN_STATE_DOWNLOADFILE, LOGIN_STATE_SURVEY }) do
+	if s then
+		ANSWER_MESSAGES[s] = true
+	end
+end
+
 local function Status_Parent()
 	return AccountLoginUI or AccountLogin
 end
@@ -617,10 +677,10 @@ local function Status_MarkSlow()
 	b:Show()
 end
 
-local function Status_MarkDown()
+local function Status_MarkDown(reason)
 	local b = Status_EnsureBanner()
 	b:SetTextColor(1, 0.15, 0.15)
-	b:SetText("OctoWoW appears DOWN\n(no answer within 5s)")
+	b:SetText("OctoWoW appears DOWN\n(" .. (reason or "no answer within 5s") .. ")")
 	b:Show()
 end
 
@@ -644,6 +704,7 @@ end
 -- verdict clears it).
 local PROBE_SOFT = 1.2
 local PROBE_HARD = 5.0
+local probeAnswered = false -- saw an auth-progress state this probe
 
 local probeTimer = CreateFrame("Frame")
 probeTimer.elapsed = 0
@@ -661,15 +722,35 @@ probeTimer:SetScript("OnUpdate", function()
 	end
 	if probeTimer.elapsed >= PROBE_HARD then
 		probeTimer:Hide()
-		Status_MarkDown()
+		-- The hard mark aborts the ATTEMPT, but the verdict depends on
+		-- whether the server ever spoke: a handshake that got past connect
+		-- is a server that is up, just slow to reject a bogus account.
+		if probeAnswered then
+			Status_MarkUp(true)
+		else
+			Status_MarkDown()
+		end
 		if type(DisconnectFromServer) == "function" then
 			DisconnectFromServer()
 		end
 	end
 end)
 
+-- The auth progress states arrive as UPDATE_STATUS_DIALOG, which the stock
+-- GlueDialog handles directly - they never pass through GlueDialog_Show, so
+-- the hook below cannot see them. Listen for the event ourselves.
+Octo_Try("probe-events", function()
+	probeTimer:RegisterEvent("UPDATE_STATUS_DIALOG")
+	probeTimer:SetScript("OnEvent", function()
+		if probing and arg1 and ANSWER_MESSAGES[arg1] then
+			probeAnswered = true
+		end
+	end)
+end)
+
 function OctoStatus_Probe()
 	probing = true
+	probeAnswered = false
 	probeTimer.elapsed = 0
 	probeTimer.softShown = false
 	probeTimer:Show()
@@ -683,11 +764,13 @@ function GlueDialog_Show(which, text, data)
 		if text and DOWN_MESSAGES[text] then
 			probing = false
 			probeTimer:Hide()
-			Status_MarkDown()
+			Status_MarkDown(text)
 		elseif text and UP_MESSAGES[text] then
 			probing = false
 			probeTimer:Hide()
 			Status_MarkUp(true)
+		elseif text and ANSWER_MESSAGES[text] then
+			probeAnswered = true -- OPEN_STATUS_DIALOG path for a progress state
 		end
 		return -- swallow every dialog during a probe (no Connecting/Cancel)
 	end
@@ -755,3 +838,71 @@ Octo_Try("check-btn", function()
 	end
 end)
 Octo_Diag("status section loaded")
+
+-- -------------------------------------------------------------- OctoMusic --
+-- The glue VM has no volume cvars, but it DOES have the music transport:
+-- PlayGlueMusic/StopGlueMusic (the stock GlueParent.lua drives them). So the
+-- "sound button" is a MUSIC toggle: shadowing PlayGlueMusic keeps the choice
+-- across glue-screen changes (GlueParent replays the theme on every screen
+-- swap by global name, so it calls our wrapper), and "#M=0" in the account
+-- suffix keeps it across sessions. Effects volume would still need a DLL.
+local musicButtons = {}
+
+local Octo_OrigPlayGlueMusic = PlayGlueMusic
+function PlayGlueMusic(music)
+	if musicOff then
+		return
+	end
+	return Octo_OrigPlayGlueMusic(music)
+end
+
+local function Music_UpdateLabels()
+	for _, b in ipairs(musicButtons) do
+		b:SetText(musicOff and "Music: Off" or "Music: On")
+	end
+end
+
+local function Music_Toggle()
+	musicOff = not musicOff
+	if musicOff then
+		if type(StopGlueMusic) == "function" then
+			StopGlueMusic()
+		end
+	else
+		Octo_OrigPlayGlueMusic(CurrentGlueMusic
+			or "Sound\\Music\\GlueScreenMusic\\wow_main_theme.mp3")
+	end
+	Suffix_Save()
+	Music_UpdateLabels()
+end
+
+local function Music_MakeButton(name, parent, point, relTo, relPoint, x, y)
+	if not parent or _G[name] then
+		return
+	end
+	local b = CreateFrame("Button", name, parent, "GlueButtonSmallTemplate")
+	b:SetPoint(point, relTo or parent, relPoint or point, x, y)
+	b:SetFrameLevel(parent:GetFrameLevel() + 2)
+	b:SetScript("OnClick", Music_Toggle)
+	table.insert(musicButtons, b)
+end
+
+Octo_Try("music-btn", function()
+	-- Login screen: under the Check Server button.
+	Music_MakeButton("OctoMusicButtonLogin", Status_Parent(),
+		"TOPRIGHT", nil, nil, -20, -110)
+	-- Char select: beside the AddOns button, bottom-left.
+	local addons = _G["CharacterSelectAddonsButton"]
+	if addons then
+		Music_MakeButton("OctoMusicButtonCharSelect", CharacterSelectUI,
+			"LEFT", addons, "RIGHT", 8, 0)
+	else
+		Music_MakeButton("OctoMusicButtonCharSelect", CharacterSelectUI,
+			"BOTTOMLEFT", nil, nil, 16, 40)
+	end
+	Music_UpdateLabels()
+	if musicOff and type(StopGlueMusic) == "function" then
+		StopGlueMusic() -- the theme may already be playing when we load
+	end
+end)
+Octo_Diag("music btn ok, music " .. (musicOff and "OFF" or "on"))
