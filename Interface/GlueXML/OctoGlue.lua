@@ -40,57 +40,22 @@
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
--- ---------------------------------------------------------------- OctoDiag --
--- On-screen diagnostics. Remove once everything is confirmed working.
-local OCTO_VERSION = "v13"
-local diagStrings = {}
-local diagLines = { "OctoGlue " .. OCTO_VERSION .. " loaded" }
+local OCTO_VERSION = "v14"
 
-local function Octo_DiagRender()
-	local text = table.concat(diagLines, "\n")
-	for _, fs in ipairs(diagStrings) do
-		fs:SetText(text)
-	end
-end
-
-local function Octo_Diag(msg)
-	if diagLines[table.getn(diagLines)] == msg then
-		return -- dedupe repeats (list updates fire often)
-	end
-	table.insert(diagLines, msg)
-	Octo_DiagRender()
-end
-
-local function Octo_DiagAttach(parent, point, x, y)
-	if parent then
-		local fs = parent:CreateFontString(nil, "OVERLAY", "GlueFontNormalSmall")
-		fs:SetPoint(point, parent, point, x, y)
-		fs:SetTextColor(1, 0.9, 0.3)
-		fs:SetJustifyH("LEFT")
-		table.insert(diagStrings, fs)
-		Octo_DiagRender()
-	end
-end
-
+-- Run f protected so one broken feature cannot take the whole glue screen
+-- with it. Failures are silent now that the on-screen diagnostics are gone
+-- (v6-v13); if something regresses, restore OctoDiag from the v13 commit.
 local function Octo_Try(label, f, a1, a2)
 	if type(pcall) ~= "function" then
 		f(a1, a2)
 		return true
 	end
-	local ok, err = pcall(f, a1, a2)
-	if not ok then
-		Octo_Diag("ERR " .. label .. ": " .. tostring(err))
-	end
+	local ok = pcall(f, a1, a2)
 	return ok
 end
 
-Octo_DiagAttach(AccountLoginUI or AccountLogin, "BOTTOM", 0, 45)
-Octo_DiagAttach(CharacterSelectUI, "TOPLEFT", 16, -120)
-
 local HAS_SAVEDNAME = type(GetSavedAccountName) == "function"
 	and type(SetSavedAccountName) == "function"
-Octo_Diag("SavedAccountName " .. (HAS_SAVEDNAME and "ok" or "MISSING")
-	.. " / baked " .. (type(OCTO_BAKED_CHALLENGES) == "table" and "ok" or "MISSING"))
 
 -- ------------------------------------------------------ suffix persistence --
 -- Everything we persist lives after a "#" in the saved account name, as
@@ -546,9 +511,7 @@ function UpdateCharacterList()
 		end
 	end
 
-	if ( Octo_Try("arrows", Reorder_UpdateArrows, numChars) ) then
-		Octo_Diag("list: " .. numChars .. " chars, arrows ok"); -- OctoReorder
-	end
+	Octo_Try("arrows", Reorder_UpdateArrows, numChars); -- OctoReorder
 
 	if ( numChars == 0 ) then
 		CharacterSelectDeleteButton:Disable();
@@ -837,7 +800,6 @@ Octo_Try("check-btn", function()
 		end)
 	end
 end)
-Octo_Diag("status section loaded")
 
 -- -------------------------------------------------------------- OctoMusic --
 -- The glue VM has no volume cvars, but it DOES have the music transport:
@@ -905,4 +867,3 @@ Octo_Try("music-btn", function()
 		StopGlueMusic() -- the theme may already be playing when we load
 	end
 end)
-Octo_Diag("music btn ok, music " .. (musicOff and "OFF" or "on"))
