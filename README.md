@@ -49,8 +49,8 @@ To uninstall, delete `<WoW>/Data/patch-9.mpq` and the addon folder.
 - The character-select screen runs in the glue Lua VM, which addons cannot
   touch and which gets no challenge data. Cvars are engine-global across the
   glue/world boundary, so the addon mirrors challenge masks into a cvar
-  payload the glue code reads (custom `octoCharOrder` cvar, falling back to
-  the unused `accountList`).
+  payload the glue code reads (the stock, registered `accountList` cvar -
+  the glue VM has no pcall, so only registered cvars are safe there).
 - Character order is rendered as a display permutation; the server's
   character indices are untouched, so rename/delete/enter-world all keep
   their stock behavior.
