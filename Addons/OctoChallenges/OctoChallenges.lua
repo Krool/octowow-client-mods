@@ -142,40 +142,22 @@ end
 -- ";"-separated "K=value" sections; section C holds "realm/name:mask" comma
 -- entries (section O is the char order, owned by the glue side). The cvar
 -- candidates and format must stay in sync with patch-Z-src CharacterSelect.lua.
-local OCTO_CVAR_CANDIDATES = { "octoCharOrder", "accountList" }
-local octoCvar = nil
+-- The glue VM has no pcall, so the glue side can only touch a REGISTERED
+-- cvar safely; both sides therefore use the stock "accountList" cvar
+-- (sub-account list, unused on private servers). Keep in sync with
+-- patch-Z-src OctoGlue.lua.
+local OCTO_CVAR = "accountList"
 
 local function Octo_ReadPayload()
-	if octoCvar then
-		local ok, s = pcall(GetCVar, octoCvar)
-		if ok and type(s) == "string" then return s end
-		return ""
-	end
-	for _, cvar in ipairs(OCTO_CVAR_CANDIDATES) do
-		local ok, s = pcall(GetCVar, cvar)
-		if ok and type(s) == "string" and string.find(s, "^%a=") then
-			octoCvar = cvar
-			return s
-		end
+	local ok, s = pcall(GetCVar, OCTO_CVAR)
+	if ok and type(s) == "string" and string.find(s, "^%a=") then
+		return s
 	end
 	return ""
 end
 
 local function Octo_WritePayload(payload)
-	if octoCvar then
-		pcall(SetCVar, octoCvar, payload)
-		return
-	end
-	for _, cvar in ipairs(OCTO_CVAR_CANDIDATES) do
-		local ok = pcall(SetCVar, cvar, payload)
-		if ok then
-			local ok2, got = pcall(GetCVar, cvar)
-			if ok2 and got == payload then
-				octoCvar = cvar
-				return
-			end
-		end
-	end
+	pcall(SetCVar, OCTO_CVAR, payload)
 end
 
 local function Bridge_Store(mask)

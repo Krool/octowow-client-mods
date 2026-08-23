@@ -36,56 +36,56 @@
 -- server order).
 
 local ReorderPerm = {}
-local octoCvar = nil
-local OCTO_CVAR_CANDIDATES = { "octoCharOrder", "accountList" }
 
--- Without pcall, a rejected SetCVar would hard-error and take the whole
--- character screen down with it - so no pcall, no persistence.
+-- The glue VM here has NO pcall (v6 diagnostics), so everything must be safe
+-- when called directly. That rules out probing custom cvar names (an unknown
+-- name may hard-error); we use ONLY the stock, registered "accountList" cvar
+-- (the sub-account list, unused on private servers) - registered cvars are
+-- safe to read and write unprotected. The in-world OctoChallenges addon
+-- writes the same cvar.
+local OCTO_CVAR = "accountList"
+local HAS_PCALL = type(pcall) == "function"
+local HAS_CVARS = type(SetCVar) == "function" and type(GetCVar) == "function"
+
+local function SafeGetCVar(name)
+	if not HAS_CVARS then
+		return nil
+	end
+	if HAS_PCALL then
+		local ok, v = pcall(GetCVar, name)
+		if ok then
+			return v
+		end
+		return nil
+	end
+	return GetCVar(name)
+end
+
+local function SafeSetCVar(name, value)
+	if not HAS_CVARS then
+		return
+	end
+	if HAS_PCALL then
+		pcall(SetCVar, name, value)
+	else
+		SetCVar(name, value)
+	end
+end
+
 local function Octo_CanPersist()
-	return type(pcall) == "function"
-		and type(SetCVar) == "function"
-		and type(GetCVar) == "function"
+	return HAS_CVARS
 end
 
 local function Octo_ReadPayload()
-	if not Octo_CanPersist() then
-		return ""
-	end
-	if octoCvar then
-		local ok, s = pcall(GetCVar, octoCvar)
-		if ok and type(s) == "string" then
-			return s
-		end
-		return ""
-	end
-	for _, cvar in ipairs(OCTO_CVAR_CANDIDATES) do
-		local ok, s = pcall(GetCVar, cvar)
-		if ok and type(s) == "string" and string.find(s, "^%a=") then
-			octoCvar = cvar
-			return s
-		end
+	local s = SafeGetCVar(OCTO_CVAR)
+	if type(s) == "string" and string.find(s, "^%a=") then
+		return s
 	end
 	return ""
 end
 
 local function Octo_WritePayload(payload)
-	if not Octo_CanPersist() then
-		return
-	end
-	if octoCvar then
-		pcall(SetCVar, octoCvar, payload)
-		return
-	end
-	for _, cvar in ipairs(OCTO_CVAR_CANDIDATES) do
-		local ok = pcall(SetCVar, cvar, payload)
-		if ok then
-			local ok2, got = pcall(GetCVar, cvar)
-			if ok2 and got == payload then
-				octoCvar = cvar
-				return
-			end
-		end
-	end
+	SafeSetCVar(OCTO_CVAR, payload)
 end
 
 local function Octo_GetSection(key)
@@ -120,7 +120,7 @@ end
 -- On-screen diagnostics (font strings render even where frames misbehave).
 -- Shows load state and traps errors from widget creation so failures are
 -- visible instead of silent. Remove once everything is confirmed working.
-local OCTO_VERSION = "v6"
+local OCTO_VERSION = "v7"
 local diagStrings = {}
 local diagLines = { "OctoGlue " .. OCTO_VERSION .. " loaded" }
 
@@ -165,7 +165,10 @@ end
 
 Octo_DiagAttach(AccountLoginUI or AccountLogin, "BOTTOM", 0, 45)
 Octo_DiagAttach(CharacterSelectUI, "TOPLEFT", 16, -120)
-Octo_Diag(type(CreateFrame) == "function" and "CreateFrame: present" or "CreateFrame: MISSING")
+Octo_Diag("CreateFrame " .. (type(CreateFrame) == "function" and "ok" or "MISSING")
+	.. " / pcall " .. (type(pcall) == "function" and "ok" or "MISSING")
+	.. " / SetCVar " .. (type(SetCVar) == "function" and "ok" or "MISSING")
+	.. " / GetCVar " .. (type(GetCVar) == "function" and "ok" or "MISSING"))
 
 -- ------------------------------------------------------------ OctoReorder --
 
@@ -238,6 +241,7 @@ local function Reorder_MakeArrow(slot, parent, dir, texBase, yOff)
 	b:SetWidth(16)
 	b:SetHeight(16)
 	b:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -3, yOff)
+	b:SetFrameLevel(parent:GetFrameLevel() + 2)
 	b:SetNormalTexture(texBase .. "-Up")
 	b:SetPushedTexture(texBase .. "-Down")
 	b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
@@ -338,6 +342,7 @@ local function Chal_EnsureIcon(slot, j)
 		local col = math.mod(j - 1, 7)
 		local row = math.floor((j - 1) / 7)
 		b:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -22 - col * 18, 6 + row * 18)
+		b:SetFrameLevel(parent:GetFrameLevel() + 2)
 		b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
 		b:GetHighlightTexture():SetBlendMode("ADD")
 		b:SetScript("OnEnter", function()
@@ -397,8 +402,7 @@ local SOUND_CVARS = {
 
 local function OctoSound_Refresh()
 	for _, s in ipairs(soundSliders) do
-		local ok, v = pcall(GetCVar, s.cvar)
-		v = ok and tonumber(v) or 1
+		local v = tonumber(SafeGetCVar(s.cvar)) or 1
 		s.updating = true
 		s.slider:SetValue(v)
 		s.updating = false
@@ -408,6 +412,7 @@ end
 
 local function OctoSound_MakeSlider(i, def)
 	local slider = CreateFrame("Slider", "OctoSoundSlider" .. i, soundPanel)
+	slider:SetFrameLevel(soundPanel:GetFrameLevel() + 2)
 	slider:SetWidth(160)
 	slider:SetHeight(17)
 	slider:SetPoint("TOPLEFT", soundPanel, "TOPLEFT", 30, -40 - (i - 1) * 42)
@@ -435,7 +440,7 @@ local function OctoSound_MakeSlider(i, def)
 			return
 		end
 		local v = this:GetValue()
-		pcall(SetCVar, entry.cvar, v)
+		SafeSetCVar(entry.cvar, v)
 		entry.valueText:SetText(math.floor(v * 100 + 0.5) .. "%")
 	end)
 	table.insert(soundSliders, entry)
@@ -493,6 +498,7 @@ local function OctoSound_MakeOpenButton(name, parent, point, x, y)
 	end
 	local b = CreateFrame("Button", name, parent, "GlueButtonSmallTemplate")
 	b:SetPoint(point, parent, point, x, y)
+	b:SetFrameLevel(parent:GetFrameLevel() + 2)
 	b:SetText("Sound")
 	b:SetScript("OnClick", function()
 		OctoSound_Toggle()
@@ -784,6 +790,7 @@ Octo_Try("check-btn", function()
 	if parent and not _G["OctoStatusCheckButton"] then
 		local b = CreateFrame("Button", "OctoStatusCheckButton", parent, "GlueButtonSmallTemplate")
 		b:SetPoint("TOP", parent, "TOP", 0, -130)
+		b:SetFrameLevel(parent:GetFrameLevel() + 2)
 		b:SetText("Check Server")
 		b:SetScript("OnClick", function()
 			OctoStatus_Probe()
