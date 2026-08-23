@@ -1,0 +1,6 @@
+## Interface: 11200
+## Title: OctoChallenges
+## Notes: Shows your character's active leveling challenges on the paperdoll with icons and tooltips.
+## Author: Krool
+## SavedVariablesPerCharacter: OctoChallengesDB
+OctoChallenges.lua
