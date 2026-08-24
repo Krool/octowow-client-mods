@@ -40,7 +40,7 @@
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
-local OCTO_VERSION = "v14"
+local OCTO_VERSION = "v15"
 
 -- Run f protected so one broken feature cannot take the whole glue screen
 -- with it. Failures are silent now that the on-screen diagnostics are gone
@@ -56,6 +56,32 @@ end
 
 local HAS_SAVEDNAME = type(GetSavedAccountName) == "function"
 	and type(SetSavedAccountName) == "function"
+
+-- One of the injected DLLs (see Logs\nampower_debug.log: "Registering
+-- WriteCustomFile/ReadCustomFile...") adds file APIs to the Lua VMs. If they
+-- exist here in glue they are CRASH-PROOF storage: the account-name cvar only
+-- reaches Config.wtf on a clean client flush, so a crash on logout/exit (which
+-- this install hits regularly) silently loses a reorder saved that session.
+-- The file is written the moment the order changes. The cvar suffix stays as
+-- the fallback (and keeps working when the DLL is absent).
+local SUFFIX_FILE = "octoglue-settings"
+
+local function Suffix_ReadFile()
+	if type(ReadCustomFile) ~= "function" or type(pcall) ~= "function" then
+		return nil
+	end
+	local ok, s = pcall(ReadCustomFile, SUFFIX_FILE)
+	if ok and type(s) == "string" and string.find(s, "#", 1, true) then
+		return s
+	end
+	return nil
+end
+
+local function Suffix_WriteFile(s)
+	if type(WriteCustomFile) == "function" and type(pcall) == "function" then
+		pcall(WriteCustomFile, SUFFIX_FILE, s)
+	end
+end
 
 -- ------------------------------------------------------ suffix persistence --
 -- Everything we persist lives after a "#" in the saved account name, as
@@ -79,8 +105,19 @@ local function Order_SplitSaved()
 	return s, nil
 end
 
-local function Order_GetCSV()
+-- The current suffix: the DLL file wins (survives crashes and the stock
+-- login's SetSavedAccountName("") clear), the cvar suffix is the fallback.
+local function Suffix_Get()
+	local s = Suffix_ReadFile()
+	if s then
+		return s
+	end
 	local _, suffix = Order_SplitSaved()
+	return suffix
+end
+
+local function Order_GetCSV()
+	local suffix = Suffix_Get()
 	if suffix then
 		-- [^#]* so a following token ("#M=0") cannot leak into the last name.
 		local _, _, csv = string.find(suffix, "#O=([^#]*)")
@@ -95,6 +132,15 @@ end
 -- session survives a music toggle (and vice versa) because each half falls
 -- back to what is already saved when this session never touched it.
 local function Suffix_Save()
+	local csv = memoryOrder or Order_GetCSV() -- memory first: it is the newer write
+	local suffix = ""
+	if csv and csv ~= "" then
+		suffix = suffix .. "#O=" .. csv
+	end
+	if musicOff then
+		suffix = suffix .. "#M=0"
+	end
+	Suffix_WriteFile(suffix) -- lands on disk NOW, crash or no crash
 	if not HAS_SAVEDNAME then
 		return
 	end
@@ -102,15 +148,7 @@ local function Suffix_Save()
 	if base == "" and AccountLoginAccountEdit and AccountLoginAccountEdit.GetText then
 		base = AccountLoginAccountEdit:GetText() or ""
 	end
-	local csv = memoryOrder or Order_GetCSV() -- memory first: it is the newer write
-	local s = base
-	if csv and csv ~= "" then
-		s = s .. "#O=" .. csv
-	end
-	if musicOff then
-		s = s .. "#M=0"
-	end
-	SetSavedAccountName(s)
+	SetSavedAccountName(base .. suffix)
 end
 
 local function Order_SetCSV(csv)
@@ -120,7 +158,7 @@ end
 
 -- Load the music flag once at startup.
 do
-	local _, suffix = Order_SplitSaved()
+	local suffix = Suffix_Get()
 	if suffix and string.find(suffix, "#M=0", 1, true) then
 		musicOff = true
 	end
@@ -668,6 +706,8 @@ end
 local PROBE_SOFT = 1.2
 local PROBE_HARD = 5.0
 local probeAnswered = false -- saw an auth-progress state this probe
+local probeSettled = false  -- hard mark already showed the verdict; swallow
+                            -- the aborted attempt's fallout WITHOUT re-marking
 
 local probeTimer = CreateFrame("Frame")
 probeTimer.elapsed = 0
@@ -693,6 +733,11 @@ probeTimer:SetScript("OnUpdate", function()
 		else
 			Status_MarkDown()
 		end
+		-- The verdict is final: DisconnectFromServer below raises a
+		-- DISCONNECTED dialog of our own making, and before v15 the probing
+		-- branch of GlueDialog_Show re-marked on it - flipping a hard-mark UP
+		-- to "appears DOWN (Disconnected)" a moment later.
+		probeSettled = true
 		if type(DisconnectFromServer) == "function" then
 			DisconnectFromServer()
 		end
@@ -714,6 +759,7 @@ end)
 function OctoStatus_Probe()
 	probing = true
 	probeAnswered = false
+	probeSettled = false
 	probeTimer.elapsed = 0
 	probeTimer.softShown = false
 	probeTimer:Show()
@@ -724,6 +770,16 @@ end
 local Octo_OrigGlueDialog_Show = GlueDialog_Show
 function GlueDialog_Show(which, text, data)
 	if probing then
+		if probeSettled then
+			-- Hard mark already ruled; this dialog is fallout from the
+			-- aborted attempt (typically DISCONNECTED from our own
+			-- DisconnectFromServer). Swallow it, and once the terminal
+			-- dialog lands stop swallowing so real dialogs get through.
+			if text and (DOWN_MESSAGES[text] or UP_MESSAGES[text]) then
+				probing = false
+			end
+			return
+		end
 		if text and DOWN_MESSAGES[text] then
 			probing = false
 			probeTimer:Hide()
@@ -737,9 +793,10 @@ function GlueDialog_Show(which, text, data)
 		end
 		return -- swallow every dialog during a probe (no Connecting/Cancel)
 	end
-	if text and DOWN_MESSAGES[text] then
-		Status_MarkDown()
-	end
+	-- v15: no MarkDown here. A stock DISCONNECTED dialog fires every time the
+	-- player RETURNS to the login screen after a session - it means "you were
+	-- disconnected", not "the server is down", and painting the banner red on
+	-- it was the standing false "appears DOWN" after logout.
 	return Octo_OrigGlueDialog_Show(which, text, data)
 end
 
@@ -785,6 +842,9 @@ local Octo_OrigCharacterSelect_OnShow = CharacterSelect_OnShow
 function CharacterSelect_OnShow()
 	probing = false
 	Status_MarkUp() -- we connected, so the server is up; clear the banner
+	-- Re-arm the auto-probe: if we later land back on the login screen
+	-- (logout/disconnect), the old verdict is stale - probe again.
+	autoProbed = false
 	return Octo_OrigCharacterSelect_OnShow()
 end
 

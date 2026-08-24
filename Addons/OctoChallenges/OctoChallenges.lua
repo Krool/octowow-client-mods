@@ -41,8 +41,8 @@ local NUM_CHALLENGES = table.getn(CHALLENGES)
 
 local ICON_SIZE = 26
 local ICON_GAP  = 5
-local MAX_RETRIES = 5
-local RETRY_INTERVAL = 3
+local MAX_RETRIES = 12
+local RETRY_INTERVAL = 2
 
 local playerGuid = nil
 local retriesLeft = 0
@@ -142,6 +142,8 @@ end
 
 -- ------------------------------------------------------------ protocol ------
 
+local warnedNoAnswer = false
+
 local timer = CreateFrame("Frame")
 timer.elapsed = 0
 timer:Hide()
@@ -149,8 +151,18 @@ timer:SetScript("OnUpdate", function()
 	timer.elapsed = timer.elapsed + arg1
 	if timer.elapsed < RETRY_INTERVAL then return end
 	timer.elapsed = 0
-	if gotResponse or retriesLeft <= 0 then
+	if gotResponse then
 		timer:Hide()
+		return
+	end
+	if retriesLeft <= 0 then
+		timer:Hide()
+		-- Say so ONCE: a silent failure here reads as "no challenges", and
+		-- the character-select bake then quietly stays stale for this char.
+		if not warnedNoAnswer then
+			warnedNoAnswer = true
+			DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99OctoChallenges|r: the server never answered the challenge query - nothing cached for this character (character-select icons will be stale). /octochallenges to retry.")
+		end
 		return
 	end
 	retriesLeft = retriesLeft - 1
@@ -182,8 +194,16 @@ handler:SetScript("OnEvent", function()
 		if guid and guid == GetPlayerGuid() then
 			gotResponse = true
 			if not OctoChallengesDB then OctoChallengesDB = {} end
+			local old = OctoChallengesDB.mask
 			OctoChallengesDB.mask = tonumber(mask)
 			Render()
+			-- Announce a NEW or CHANGED cache so a bake-relog is clearly done:
+			-- SavedVariables flush at logout, then patch-Z-src\build.ps1 bakes
+			-- them into the character-select icons.
+			if OctoChallengesDB.mask ~= old then
+				local n = table.getn(ActiveList(OctoChallengesDB.mask))
+				DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99OctoChallenges|r: cached " .. n .. " active challenge(s) for this character - safe to log out (rebuild patch-9 to refresh character select).")
+			end
 		end
 	end
 end)
