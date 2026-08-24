@@ -303,6 +303,41 @@ The client embeds a cut-down Lua 5.0. Every modern habit that dies here:
   texture packs), AuctionQueryThrottle (pairs with aux-addon),
   perf_boost.dll (selective render distances).
 
+### 3.2b ClassicAPI — the high-value candidate (found 2026-08-23)
+
+github.com/brues-code/ClassicAPI (GPLv3, C++), mirrored on OctoWoW's own
+Gitea (octowow.st/git/brues/ClassicAPI) where the community pfUI fork and
+SuperCleveRoidMacros REQUIRE it — strong evidence it runs on the Octo exe,
+unlike SuperWoW/UnitXP. Actively maintained (release v1.12.1 on
+2026-08-23). Single self-contained `ClassicAPI.dll` via dlls.txt; its
+companion addon ships embedded in the DLL.
+
+What it adds (per README):
+- **Backports 550+ modern API functions and 50+ events** (C_Item,
+  C_Container, C_Spell, secure templates, `|T|t` texture markup, real
+  nameplate events) plus **much of Lua 5.1** (transpiles `#`, `%`, hex
+  literals, modern handler args).
+- **Glue VM mirroring — the part that matters for patch-9**: account
+  persistence (`SaveAccount`/`GetSavedAccounts`), **character order
+  storage**, a **CVar bridge**, `RunScript`, `IsFirstLoadThisSession`.
+  This would replace the fragile SavedAccountName-suffix persistence
+  (which dies with exit crashes) and could revive the dropped pre-login
+  sound sliders.
+- `/dump`, `/framestack`, `/etrace` via an embedded DebugTools backport.
+
+Status here: `ClassicAPI.dll` v1.12.1 downloaded into the game dir,
+**NOT enabled** (not in dlls.txt) — enabling is a deliberate test launch
+(this exe has broken 4 of 8 DLLs tried). Verified in OctoLauncher source
+(`dllsTxt.ts`): the launcher preserves foreign dlls.txt lines — a manual
+ClassicAPI entry survives launcher updates.
+
+Test protocol when trying it: add `ClassicAPI.dll` to dlls.txt alone
+(with existing three), launch, confirm login screen → char select →
+world; in glue check `SaveAccount`/CVar bridge existence via patch-9
+diagnostics; in-game check `/dump` works. If load fails: remove the
+dlls.txt line, done. If it works, migrate OctoReorder persistence and
+re-evaluate baked-vs-live challenge data.
+
 ### 3.3 Compatibility and fragility
 
 - dlls.txt line order does not matter for the mainstream trio (per
