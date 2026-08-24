@@ -325,18 +325,25 @@ What it adds (per README):
   sound sliders.
 - `/dump`, `/framestack`, `/etrace` via an embedded DebugTools backport.
 
-Status here: `ClassicAPI.dll` v1.12.1 downloaded into the game dir,
-**NOT enabled** (not in dlls.txt) — enabling is a deliberate test launch
-(this exe has broken 4 of 8 DLLs tried). Verified in OctoLauncher source
-(`dllsTxt.ts`): the launcher preserves foreign dlls.txt lines — a manual
-ClassicAPI entry survives launcher updates.
+**TESTED 2026-08-24: v1.12.1 FAILS on the OctoWoW exe** — VanillaFixes
+reports "DLL entry point returned an error (0). Make sure you have a
+compatible game client (1.6.1-1.12.1)" and the client never starts. Same
+failure class as SuperWoW/UnitXP/transmogFix/multiMonitorFix: the DLL's
+entry point rejects (or crashes on) this server's modified 5875 image.
+Removed from dlls.txt; the DLL remains in the game dir for retesting.
+Worth rechecking on new releases (active project; the octowow.st Gitea
+pfUI fork requires it, so Octo users presumably run SOME build — an
+issue asking about modified-exe support, or the Gitea mirror having an
+Octo-patched build, are both plausible leads).
 
-Test protocol when trying it: add `ClassicAPI.dll` to dlls.txt alone
-(with existing three), launch, confirm login screen → char select →
-world; in glue check `SaveAccount`/CVar bridge existence via patch-9
-diagnostics; in-game check `/dump` works. If load fails: remove the
-dlls.txt line, done. If it works, migrate OctoReorder persistence and
-re-evaluate baked-vs-live challenge data.
+Verified in OctoLauncher source (`dllsTxt.ts`): the launcher preserves
+foreign dlls.txt lines — a manual entry survives launcher updates.
+
+Retest protocol: add `ClassicAPI.dll` to dlls.txt alone (with the
+existing three), launch, confirm login screen → char select → world; in
+glue check `SaveAccount`/CVar bridge existence; in-game check `/dump`.
+If load fails: remove the dlls.txt line, done. If it works, migrate
+OctoReorder persistence and re-evaluate baked-vs-live challenge data.
 
 ### 3.3 Compatibility and fragility
 
