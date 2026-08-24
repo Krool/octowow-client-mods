@@ -40,7 +40,7 @@
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
-local OCTO_VERSION = "v19"
+local OCTO_VERSION = "v20"
 
 -- Run f protected so one broken feature cannot take the whole glue screen
 -- with it. Failures are silent now that the on-screen diagnostics are gone
@@ -310,12 +310,23 @@ local function Reorder_MakeArrow(slot, parent, dir, yOff)
 		Reorder_Move(slot, dir)
 	end)
 	b:SetScript("OnEnter", function()
+		local arrows = reorderArrows[slot]
+		if arrows then
+			arrows.hover = true
+		end
 		Arrow_SetRowAlpha(slot, 1.0)
 	end)
 	b:SetScript("OnLeave", function()
+		local arrows = reorderArrows[slot]
+		if arrows then
+			arrows.hover = nil
+		end
 		Arrow_SetRowAlpha(slot, ARROW_IDLE_ALPHA)
 	end)
-	Arrow_SetAlpha(b, ARROW_IDLE_ALPHA)
+	-- NOTE: no point setting the idle alpha here - something in the glue
+	-- template plumbing resets it before first display (observed in v18:
+	-- arrows started full-bright until first hover). It is re-asserted on
+	-- every Reorder_UpdateArrows instead.
 	return b
 end
 
@@ -344,6 +355,11 @@ local function Reorder_UpdateArrows(numChars)
 			else
 				arrows.down:Hide()
 			end
+			-- Re-assert the idle dim on every list update: the initial
+			-- SetAlpha at creation does not survive to first display (glue
+			-- template quirk), and this also restores it after Show(). A
+			-- row the mouse is currently on stays bright.
+			Arrow_SetRowAlpha(slot, arrows.hover and 1.0 or ARROW_IDLE_ALPHA)
 		elseif reorderArrows[slot] then
 			reorderArrows[slot].up:Hide()
 			reorderArrows[slot].down:Hide()
