@@ -40,7 +40,7 @@
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
-local OCTO_VERSION = "v21"
+local OCTO_VERSION = "v22"
 
 -- Run f protected so one broken feature cannot take the whole glue screen
 -- with it. Failures are silent now that the on-screen diagnostics are gone
@@ -750,16 +750,22 @@ local UP_MESSAGES = Octo_StringSet({ "LOGIN_UNKNOWN_ACCOUNT",
 	"LOGIN_INCORRECT_PASSWORD", "LOGIN_BANNED", "LOGIN_SUSPENDED",
 	"LOGIN_ALREADYONLINE", "LOGIN_DBBUSY", "LOGIN_BADVERSION", "LOGIN_NOTIME" })
 
--- Auth PROGRESS states past the TCP connect. Any of these means the server
--- answered - even if the bogus probe account then takes ages to be rejected
--- (auth cores rate-limit failed logins) or the final rejection string is one
--- we do not know. This is what stopped the false DOWNs: v12 judged only the
--- FINAL dialog, so a slow rejection ran into the 5s hard mark and the banner
--- said DOWN while a real login worked fine. "Connecting" is deliberately NOT
--- in the list - it shows while the connect is still in flight, so it proves
--- nothing. These arrive via UPDATE_STATUS_DIALOG (which never reaches
--- GlueDialog_Show), so the probe frame listens for the event itself.
-local ANSWER_MESSAGES = Octo_StringSet({ "LOGIN_STATE_HANDSHAKING",
+-- Auth PROGRESS states that require actual SERVER BYTES. Any of these means
+-- the server answered - even if the bogus probe account then takes ages to be
+-- rejected (auth cores rate-limit failed logins) or the final rejection
+-- string is one we do not know. This is what stopped the false DOWNs: v12
+-- judged only the FINAL dialog, so a slow rejection ran into the 5s hard mark
+-- and the banner said DOWN while a real login worked fine. "Connecting" is
+-- deliberately NOT in the list - it shows while the connect is still in
+-- flight - and neither is "Handshaking" (v22): the client shows it the
+-- instant the TCP socket OPENS, before the server has sent anything, so a
+-- half-dead host (or a proxy front) that accepts connections with the auth
+-- daemon dead behind it read UP. "Authenticating" is the first state that
+-- only occurs after the server's challenge response, and it follows within
+-- milliseconds on a live server, so nothing is lost. These arrive via
+-- UPDATE_STATUS_DIALOG (which never reaches GlueDialog_Show), so the probe
+-- frame listens for the event itself.
+local ANSWER_MESSAGES = Octo_StringSet({
 	"LOGIN_STATE_AUTHENTICATING", "LOGIN_STATE_CHECKINGVERSIONS",
 	"LOGIN_STATE_AUTHENTICATED", "LOGIN_STATE_DOWNLOADFILE",
 	"LOGIN_STATE_SURVEY" })
