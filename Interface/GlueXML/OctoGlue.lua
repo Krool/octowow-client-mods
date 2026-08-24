@@ -295,7 +295,9 @@ end
 -- Bit i-1 of the baked mask = entry i below (the server's
 -- RESPONSE_PLAYER_CHALLENGES bit order, i.e. Turtle_AvailableChallenges
 -- extended by OctoChallengeTip). Names/texts are the stock glue strings.
--- Icons are 16px, up to 7 per row, second row stacking above - fixed size.
+-- Icons are 16px, up to 5 per row, further rows stacking above - fixed
+-- size. 5, not 7: at 7 the row overlapped the character name/level text
+-- (owner, 2026-08-23).
 local ROW_CHALLENGES = {
 	{ icon = "Spell_Nature_TimeStop",              name = CHALLENGE_SLOW_AND_STEADY,  text = CHALLENGE_SLOW_AND_STEADY_TEXT },
 	{ icon = "Spell_Nature_Sleep",                 name = CHALLENGE_EXHAUSTION,       text = CHALLENGE_EXHAUSTION_TEXT },
@@ -329,8 +331,8 @@ local function Chal_EnsureIcon(slot, j)
 	if not t[j] then
 		local parent = _G["CharSelectCharacterButton" .. slot]
 		local b = CreateFrame("Button", "OctoChalIcon" .. slot .. "_" .. j, parent, "OctoChalIconTemplate")
-		local col = math.mod(j - 1, 7)
-		local row = math.floor((j - 1) / 7)
+		local col = math.mod(j - 1, 5)
+		local row = math.floor((j - 1) / 5)
 		-- The bottom 15px of each 70px row is hit-rect inset (dead art zone),
 		-- so sit above it or the icons look like they belong to the next row.
 		-- -44, not -24: the visible plate ends 20px left of the button's true
