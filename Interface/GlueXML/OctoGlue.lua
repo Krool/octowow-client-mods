@@ -40,7 +40,7 @@
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
-local OCTO_VERSION = "v23"
+local OCTO_VERSION = "v24"
 
 -- Run f protected so one broken feature cannot take the whole glue screen
 -- with it. Failures are silent now that the on-screen diagnostics are gone
@@ -1162,19 +1162,10 @@ function CharacterSelect_OnShow()
 	return Octo_OrigCharacterSelect_OnShow()
 end
 
--- Small grey version tag, bottom-right of the login screen: one glance
--- confirms the mod survived a server patch (the stock version text owns the
--- bottom-LEFT corner).
-Octo_Try("version-tag", function()
-	local parent = Status_Parent()
-	if parent and not _G["OctoVersionTag"] then
-		local fs = parent:CreateFontString("OctoVersionTag", "OVERLAY", "GlueFontHighlightSmall")
-		fs:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -16, 12)
-		fs:SetJustifyH("RIGHT")
-		fs:SetTextColor(0.45, 0.45, 0.45)
-		fs:SetText("OctoGlue " .. OCTO_VERSION)
-	end
-end)
+-- The v18-v23 version tag (grey "OctoGlue vNN", bottom-right) was removed in
+-- v24 (owner: no debug text on screen). Survived-a-server-patch check now:
+-- the status banner appearing at all IS the mod - stock glue has none.
+-- OCTO_VERSION stays for the record; nothing renders it.
 
 Octo_Try("check-btn", function()
 	local parent = Status_Parent()
