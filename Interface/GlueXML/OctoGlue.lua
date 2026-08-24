@@ -40,7 +40,7 @@
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
-local OCTO_VERSION = "v20"
+local OCTO_VERSION = "v21"
 
 -- Run f protected so one broken feature cannot take the whole glue screen
 -- with it. Failures are silent now that the on-screen diagnostics are gone
@@ -823,12 +823,13 @@ end
 -- verdict clears it).
 local PROBE_SOFT = 1.2
 local PROBE_HARD = 5.0
--- A DISCONNECTED dialog this early into a probe cannot be the probe's own
--- result (a refused connect says LOGIN_FAILED, and a real drop needs a
--- connection first) - it is teardown fallout from the session the player
--- just left. Swallow it without scoring (v17: the false "appears DOWN"
--- when returning to the login screen from character select).
-local PROBE_GRACE = 0.75
+-- v21: DISCONNECTED is NEVER accepted as a probe verdict. v17 tried a
+-- 0.75s grace window, but the old session's realm-socket teardown can fire
+-- DISCONNECTED seconds later - well past any grace and past the 2s probe
+-- delay - and kept flipping the banner DOWN on every Back-from-char-select.
+-- A genuinely refused connect says LOGIN_FAILED, and a server that dies
+-- mid-handshake just goes silent into the 5s hard mark, so nothing real is
+-- lost by ignoring disconnect texts entirely while probing.
 -- After the hard-mark verdict, keep swallowing the aborted attempt's
 -- dialogs only this much longer; then stop even if no terminal dialog ever
 -- arrives (v17: DisconnectFromServer on a never-connected probe can be a
@@ -941,8 +942,8 @@ function GlueDialog_Show(which, text, data)
 			return
 		end
 		if text and DOWN_MESSAGES[text] then
-			if text == DISCONNECTED and probeTimer.elapsed < PROBE_GRACE then
-				return -- teardown fallout from the session we just left
+			if text == DISCONNECTED or text == RESPONSE_DISCONNECTED then
+				return -- stale teardown fallout, never a verdict (see above)
 			end
 			probing = false
 			probeTimer:Hide()
@@ -974,6 +975,22 @@ end
 -- produced the false "appears DOWN" after logout.
 local autoProbed = false
 local returningFromCharSelect = false
+local backWasVoluntary = false
+
+-- The Back button and ESCAPE both land here. A VOLUNTARY exit from char
+-- select is itself proof the server is up - we were connected to it one
+-- second ago - so the login screen can go straight to the green banner
+-- with no probe at all (v21). This also sidesteps the auth core
+-- rate-limiting repeat probe logins within one session. A forced return
+-- (kicked/disconnected) does not pass through here and still probes.
+if type(CharacterSelect_Exit) == "function" then
+	local Octo_OrigCharacterSelect_Exit = CharacterSelect_Exit
+	function CharacterSelect_Exit()
+		backWasVoluntary = true
+		return Octo_OrigCharacterSelect_Exit()
+	end
+end
+
 if type(AccountLogin_OnShow) == "function" then
 	local Octo_OrigAccountLogin_OnShow = AccountLogin_OnShow
 	function AccountLogin_OnShow()
@@ -987,7 +1004,12 @@ if type(AccountLogin_OnShow) == "function" then
 		end
 		if not autoProbed then
 			autoProbed = true
-			if returningFromCharSelect then
+			if returningFromCharSelect and backWasVoluntary then
+				-- Chose Back while connected: the server is up, say so.
+				returningFromCharSelect = false
+				backWasVoluntary = false
+				Status_MarkUp(true)
+			elseif returningFromCharSelect then
 				returningFromCharSelect = false
 				OctoStatus_ProbeSoon(2.0)
 			else
@@ -1025,6 +1047,7 @@ function CharacterSelect_OnShow()
 	-- DEFERRED, after the old session's teardown dialogs are done.
 	autoProbed = false
 	returningFromCharSelect = true
+	backWasVoluntary = false -- only a real Back/ESC sets it, right before exit
 	return Octo_OrigCharacterSelect_OnShow()
 end
 
