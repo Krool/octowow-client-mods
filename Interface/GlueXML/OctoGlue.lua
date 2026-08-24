@@ -40,7 +40,7 @@
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
-local OCTO_VERSION = "v17"
+local OCTO_VERSION = "v18"
 
 -- Run f protected so one broken feature cannot take the whole glue screen
 -- with it. Failures are silent now that the on-screen diagnostics are gone
@@ -271,6 +271,28 @@ end
 
 local reorderArrows = {}
 
+-- Arrows idle dimmed and light up under the mouse, so busy rows (arrows +
+-- challenge icons) stay quiet until you reach for them. Alpha, not
+-- Hide/Show: a hidden frame cannot be hovered, and the row button's own
+-- OnLeave fires the moment the mouse crosses onto a child, so hiding would
+-- make the arrows unclickable. SetAlpha in glue is unverified - degrade to
+-- always-bright if it is missing.
+local ARROW_IDLE_ALPHA = 0.35
+
+local function Arrow_SetAlpha(b, a)
+	if b and b.SetAlpha and type(pcall) == "function" then
+		pcall(b.SetAlpha, b, a)
+	end
+end
+
+local function Arrow_SetRowAlpha(slot, a)
+	local arrows = reorderArrows[slot]
+	if arrows then
+		Arrow_SetAlpha(arrows.up, a)
+		Arrow_SetAlpha(arrows.down, a)
+	end
+end
+
 local function Reorder_MakeArrow(slot, parent, dir, yOff)
 	local name = "OctoReorder" .. (dir < 0 and "Up" or "Down") .. slot
 	-- The stock glue scrollbar button templates provably render at this
@@ -287,6 +309,13 @@ local function Reorder_MakeArrow(slot, parent, dir, yOff)
 	b:SetScript("OnClick", function()
 		Reorder_Move(slot, dir)
 	end)
+	b:SetScript("OnEnter", function()
+		Arrow_SetRowAlpha(slot, 1.0)
+	end)
+	b:SetScript("OnLeave", function()
+		Arrow_SetRowAlpha(slot, ARROW_IDLE_ALPHA)
+	end)
+	Arrow_SetAlpha(b, ARROW_IDLE_ALPHA)
 	return b
 end
 
@@ -955,6 +984,20 @@ function CharacterSelect_OnShow()
 	returningFromCharSelect = true
 	return Octo_OrigCharacterSelect_OnShow()
 end
+
+-- Small grey version tag, bottom-right of the login screen: one glance
+-- confirms the mod survived a server patch (the stock version text owns the
+-- bottom-LEFT corner).
+Octo_Try("version-tag", function()
+	local parent = Status_Parent()
+	if parent and not _G["OctoVersionTag"] then
+		local fs = parent:CreateFontString("OctoVersionTag", "OVERLAY", "GlueFontHighlightSmall")
+		fs:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -16, 12)
+		fs:SetJustifyH("RIGHT")
+		fs:SetTextColor(0.45, 0.45, 0.45)
+		fs:SetText("OctoGlue " .. OCTO_VERSION)
+	end
+end)
 
 Octo_Try("check-btn", function()
 	local parent = Status_Parent()
