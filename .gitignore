@@ -1,2 +1,4 @@
-tools/
+tools/*
+!tools/realm-status.ps1
+!tools/realm-status.vbs
 .claude/

@@ -40,7 +40,7 @@
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
-local OCTO_VERSION = "v22"
+local OCTO_VERSION = "v23"
 
 -- Run f protected so one broken feature cannot take the whole glue screen
 -- with it. Failures are silent now that the on-screen diagnostics are gone
@@ -784,11 +784,101 @@ local function Status_EnsureBanner()
 	return statusBanner
 end
 
+-- ---- realm (world server) status, v23 ----
+-- The probe can only ever test the LOGIN server: its throwaway account is
+-- rejected at auth and never sees the realm list, and the glue VM has no
+-- other network primitive. 2026-08-24 outage: auth answered while all three
+-- realms were offline, so the banner said UP with nothing playable. The
+-- realm status therefore comes from OUTSIDE: a scheduled task
+-- (tools\realm-status.ps1, every 2 min) scrapes octowow.st into
+-- CustomData\octoglue-realmstatus and the DLL ReadCustomFile API carries it
+-- in here. Glue has no clock, so freshness is shown as the poller's own
+-- HH:mm stamp rather than computed. Format: v1|HH:mm|on/total|Name=UP,...
+local REALM_FILE = "octoglue-realmstatus"
+local realmLine = nil
+
+local function Realms_Read()
+	if type(ReadCustomFile) ~= "function" then
+		return nil
+	end
+	local ok, s = pcall(ReadCustomFile, REALM_FILE)
+	if not ok or type(s) ~= "string" then
+		return nil
+	end
+	s = string.gsub(s, "%s+$", "")
+	local _, _, when, counts, detail = string.find(s, "^v1|([^|]*)|([^|]*)|(.*)$")
+	if not when then
+		return nil
+	end
+	local r = { when = when, detail = detail }
+	local _, _, on, total = string.find(counts, "^(%d+)/(%d+)$")
+	if on then
+		r.online = tonumber(on)
+		r.total = tonumber(total)
+	end
+	return r
+end
+
+-- Paints the small line under the banner and returns the parsed status so
+-- Status_MarkUp can veto its green verdict when every realm is down.
+local function Status_UpdateRealmLine()
+	local b = Status_EnsureBanner()
+	if not realmLine then
+		realmLine = Status_Parent():CreateFontString("OctoRealmLine", "OVERLAY", "GlueFontHighlightSmall")
+		realmLine:SetPoint("TOPRIGHT", b, "BOTTOMRIGHT", 0, -4)
+		realmLine:SetJustifyH("RIGHT")
+	end
+	local r = Realms_Read()
+	if not r then
+		realmLine:Hide()
+		return nil
+	end
+	if not r.online then
+		realmLine:SetTextColor(0.6, 0.6, 0.6)
+		realmLine:SetText("Realms: unknown (web check failed " .. r.when .. ")")
+		realmLine:Show()
+		return nil
+	end
+	local txt = "Realms: " .. r.online .. "/" .. r.total .. " up"
+	if r.online > 0 and r.online < r.total and r.detail then
+		local down = ""
+		for name, st in string.gfind(r.detail, "([^=,]+)=([A-Z]+)") do
+			if st == "DOWN" then
+				if down ~= "" then
+					down = down .. ", "
+				end
+				down = down .. name
+			end
+		end
+		if down ~= "" then
+			txt = txt .. " - " .. down .. " down"
+		end
+	end
+	txt = txt .. " (web " .. r.when .. ")"
+	if r.online == 0 then
+		realmLine:SetTextColor(1, 0.15, 0.15)
+	elseif r.online < r.total then
+		realmLine:SetTextColor(1, 0.55, 0.1)
+	else
+		realmLine:SetTextColor(0.1, 1, 0.1)
+	end
+	realmLine:SetText(txt)
+	realmLine:Show()
+	return r
+end
+
+local function Status_HideRealmLine()
+	if realmLine then
+		realmLine:Hide()
+	end
+end
+
 local function Status_MarkChecking()
 	local b = Status_EnsureBanner()
 	b:SetTextColor(1, 0.82, 0)
 	b:SetText("Checking OctoWoW...")
 	b:Show()
+	Status_UpdateRealmLine()
 end
 
 local function Status_MarkSlow()
@@ -796,6 +886,7 @@ local function Status_MarkSlow()
 	b:SetTextColor(1, 0.55, 0.1)
 	b:SetText("OctoWoW: no answer yet...")
 	b:Show()
+	Status_UpdateRealmLine()
 end
 
 local function Status_MarkDown(reason)
@@ -803,11 +894,22 @@ local function Status_MarkDown(reason)
 	b:SetTextColor(1, 0.15, 0.15)
 	b:SetText("OctoWoW appears DOWN\n(" .. (reason or "no answer within 5s") .. ")")
 	b:Show()
+	Status_UpdateRealmLine()
 end
 
 local function Status_MarkUp(announce, secs)
 	if announce then
 		local b = Status_EnsureBanner()
+		-- The probe only proves the LOGIN server answers. If the realm feed
+		-- says every world server is down, green would be a lie (the
+		-- 2026-08-24 outage): the realm verdict overrides.
+		local r = Status_UpdateRealmLine()
+		if r and r.online == 0 then
+			b:SetTextColor(1, 0.15, 0.15)
+			b:SetText("OctoWoW realms are DOWN\n(login server answers)")
+			b:Show()
+			return
+		end
 		b:SetTextColor(0.1, 1, 0.1)
 		local t = "OctoWoW is UP"
 		if secs then
@@ -815,8 +917,11 @@ local function Status_MarkUp(announce, secs)
 		end
 		b:SetText(t)
 		b:Show()
-	elseif statusBanner then
-		statusBanner:Hide()
+	else
+		if statusBanner then
+			statusBanner:Hide()
+		end
+		Status_HideRealmLine()
 	end
 end
 
