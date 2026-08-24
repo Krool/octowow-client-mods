@@ -134,11 +134,52 @@ local function Render()
 	end
 end
 
--- NOTE: no live char-select bridge exists - the glue VM has no cvar API
--- (established 2026-08-23), so the character-select screen reads challenge
--- masks BAKED from this addon's SavedVariables by patch-Z-src\build.ps1.
--- This addon only needs to keep OctoChallengesDB.mask current; SavedVariables
--- flush to disk on logout/exit, then a rebuild refreshes the select screen.
+-- Char-select bridge: where nampower's file APIs exist in this VM, the mask
+-- is upserted into CustomData\octoglue-challenges the moment the server
+-- answers (format "v1|Realm/Name=mask,...") and the character-select screen
+-- (OctoGlue v25+) reads that file live - no rebuild step. Without the APIs
+-- the "OctoGlue realm status" scheduled task mirrors SavedVariables into the
+-- same file after a logout flush, and glue's baked OCTO_BAKED_CHALLENGES
+-- table is the final fallback. This addon keeps OctoChallengesDB.mask
+-- current either way.
+
+local CHAL_FILE = "octoglue-challenges"
+
+local function MirrorMask(mask)
+	if type(WriteCustomFile) ~= "function" then
+		return false
+	end
+	local realm = string.gsub(GetRealmName() or "", "^%s*(.-)%s*$", "%1")
+	local name = UnitName("player")
+	if realm == "" or not name then
+		return false
+	end
+	local entries, order = {}, {}
+	if type(ReadCustomFile) == "function" then
+		local ok, s = pcall(ReadCustomFile, CHAL_FILE)
+		if ok and type(s) == "string" then
+			-- keys are "Realm/Name" (may contain spaces and '), values digits;
+			-- the "v1" header has no "=" so the pattern skips it naturally
+			for k, v in string.gfind(s, "([^=,|]+)=(%d+)") do
+				if not entries[k] then
+					table.insert(order, k)
+				end
+				entries[k] = v
+			end
+		end
+	end
+	local key = realm .. "/" .. name
+	if not entries[key] then
+		table.insert(order, key)
+	end
+	entries[key] = tostring(mask)
+	local parts = {}
+	for i = 1, table.getn(order) do
+		table.insert(parts, order[i] .. "=" .. entries[order[i]])
+	end
+	local ok = pcall(WriteCustomFile, CHAL_FILE, "v1|" .. table.concat(parts, ","))
+	return ok
+end
 
 -- ------------------------------------------------------------ protocol ------
 
@@ -197,12 +238,16 @@ handler:SetScript("OnEvent", function()
 			local old = OctoChallengesDB.mask
 			OctoChallengesDB.mask = tonumber(mask)
 			Render()
-			-- Announce a NEW or CHANGED cache so a bake-relog is clearly done:
-			-- SavedVariables flush at logout, then patch-Z-src\build.ps1 bakes
-			-- them into the character-select icons.
+			local mirrored = MirrorMask(OctoChallengesDB.mask)
+			-- Announce a NEW or CHANGED cache (a silent failure here used to
+			-- read as "no challenges" and leave character select stale).
 			if OctoChallengesDB.mask ~= old then
 				local n = table.getn(ActiveList(OctoChallengesDB.mask))
-				DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99OctoChallenges|r: cached " .. n .. " active challenge(s) for this character - safe to log out (rebuild patch-9 to refresh character select).")
+				if mirrored then
+					DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99OctoChallenges|r: cached " .. n .. " active challenge(s) - character-select icons update automatically.")
+				else
+					DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99OctoChallenges|r: cached " .. n .. " active challenge(s) - character select refreshes after your next logout.")
+				end
 			end
 		end
 	end
