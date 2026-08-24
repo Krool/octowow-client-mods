@@ -293,6 +293,29 @@ local function Arrow_SetRowAlpha(slot, a)
 	end
 end
 
+-- A row's arrows are lit when the mouse is on them OR the row holds the
+-- selected character (v20) - the row you are most likely to move.
+local function Arrow_IsLit(slot)
+	local arrows = reorderArrows[slot]
+	if arrows and arrows.hover then
+		return true
+	end
+	return CharacterSelect
+		and Reorder_DisplaySlot(CharacterSelect.selectedIndex or 0) == slot
+end
+
+local function Arrow_Refresh(slot)
+	Arrow_SetRowAlpha(slot, Arrow_IsLit(slot) and 1.0 or ARROW_IDLE_ALPHA)
+end
+
+local function Arrow_RefreshAll()
+	for slot = 1, MAX_CHARACTERS_DISPLAYED do
+		if reorderArrows[slot] then
+			Arrow_Refresh(slot)
+		end
+	end
+end
+
 local function Reorder_MakeArrow(slot, parent, dir, yOff)
 	local name = "OctoReorder" .. (dir < 0 and "Up" or "Down") .. slot
 	-- The stock glue scrollbar button templates provably render at this
@@ -321,7 +344,7 @@ local function Reorder_MakeArrow(slot, parent, dir, yOff)
 		if arrows then
 			arrows.hover = nil
 		end
-		Arrow_SetRowAlpha(slot, ARROW_IDLE_ALPHA)
+		Arrow_Refresh(slot) -- stays lit if this row is the selected character
 	end)
 	-- NOTE: no point setting the idle alpha here - something in the glue
 	-- template plumbing resets it before first display (observed in v18:
@@ -355,11 +378,11 @@ local function Reorder_UpdateArrows(numChars)
 			else
 				arrows.down:Hide()
 			end
-			-- Re-assert the idle dim on every list update: the initial
+			-- Re-assert the alpha on every list update: the initial
 			-- SetAlpha at creation does not survive to first display (glue
-			-- template quirk), and this also restores it after Show(). A
-			-- row the mouse is currently on stays bright.
-			Arrow_SetRowAlpha(slot, arrows.hover and 1.0 or ARROW_IDLE_ALPHA)
+			-- template quirk), and this also restores it after Show().
+			-- Hovered and selected rows stay bright.
+			Arrow_Refresh(slot)
 		elseif reorderArrows[slot] then
 			reorderArrows[slot].up:Hide()
 			reorderArrows[slot].down:Hide()
@@ -592,6 +615,7 @@ function UpdateCharacterSelection()
 	end
 
 	Octo_Try("sel-chal", Sel_Update); -- OctoChal: left-side panel
+	Octo_Try("sel-arrows", Arrow_RefreshAll); -- OctoReorder: light the selected row's arrows
 end
 
 function UpdateCharacterList()
