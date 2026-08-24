@@ -40,7 +40,7 @@
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
-local OCTO_VERSION = "v18"
+local OCTO_VERSION = "v19"
 
 -- Run f protected so one broken feature cannot take the whole glue screen
 -- with it. Failures are silent now that the on-screen diagnostics are gone
@@ -397,7 +397,9 @@ local function Chal_EnsureIcon(slot, j)
 		-- -44, not -24: the visible plate ends 20px left of the button's true
 		-- right edge (highlight texture at -20 - see the header), so at -24
 		-- the first icon straddled the row border - "the run off with 5".
-		b:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -44 - col * 18, 20 + row * 18)
+		-- 20px pitch (v19): the gold quickslot rings extend 6px past each
+		-- 16px icon and need the extra breathing room 18px did not give.
+		b:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -44 - col * 20, 20 + row * 20)
 		b:SetFrameLevel(parent:GetFrameLevel() + 2)
 		-- Closures over the button rather than `this` (glue handler
 		-- convention for `this` in SetScript'd closures is unverified).
@@ -466,7 +468,8 @@ local function Sel_EnsureIcon(j)
 		b:SetHeight(32)
 		local col = math.mod(j - 1, 4)
 		local row = math.floor((j - 1) / 4)
-		b:SetPoint("TOPLEFT", CharacterSelectUI, "TOPLEFT", 26 + col * 36, -196 - row * 36)
+		-- 40px pitch (v19): room for the quickslot rings around 32px icons.
+		b:SetPoint("TOPLEFT", CharacterSelectUI, "TOPLEFT", 26 + col * 40, -196 - row * 40)
 		b:SetScript("OnEnter", function()
 			if ChallengesTooltip and ChallengesTooltip_Update and b.chalName then
 				ChallengesTooltip:ClearAllPoints()

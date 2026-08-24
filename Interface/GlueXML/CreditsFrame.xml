@@ -10,15 +10,15 @@
 		<Size><AbsDimension x="16" y="16"/></Size>
 		<Layers>
 			<Layer level="BACKGROUND">
-				<!-- 1px dark rim so the icons read as item slots instead of
-				     floating textures (color-only Texture: same pattern as the
-				     credits gradients below, proven to render in this VM). -->
-				<Texture name="$parentEdge">
+				<!-- Stock gold quickslot ring (same treatment as the paperdoll
+				     addon's icons). Anchored with fixed insets so it scales
+				     when Sel_EnsureIcon resizes the button to 32px: 16px icon
+				     -> 28px ring, 32px icon -> 44px ring. -->
+				<Texture name="$parentRing" file="Interface\Buttons\UI-Quickslot2">
 					<Anchors>
-						<Anchor point="TOPLEFT"><Offset><AbsDimension x="-1" y="1"/></Offset></Anchor>
-						<Anchor point="BOTTOMRIGHT"><Offset><AbsDimension x="1" y="-1"/></Offset></Anchor>
+						<Anchor point="TOPLEFT"><Offset><AbsDimension x="-6" y="6"/></Offset></Anchor>
+						<Anchor point="BOTTOMRIGHT"><Offset><AbsDimension x="6" y="-6"/></Offset></Anchor>
 					</Anchors>
-					<Color r="0" g="0" b="0" a="0.85"/>
 				</Texture>
 			</Layer>
 		</Layers>
