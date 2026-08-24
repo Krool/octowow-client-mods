@@ -40,7 +40,7 @@
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
-local OCTO_VERSION = "v15"
+local OCTO_VERSION = "v17"
 
 -- Run f protected so one broken feature cannot take the whole glue screen
 -- with it. Failures are silent now that the on-screen diagnostics are gone
@@ -92,6 +92,12 @@ end
 -- AccountLogin_Login re-appends it after the stock save runs.
 local memoryOrder = nil -- session fallback when SavedAccountName is missing
 local musicOff = false  -- OctoMusic state; loaded from the suffix below
+
+-- GetServerName() pads with trailing whitespace on this client.
+local function Octo_Realm()
+	local r = GetServerName() or ""
+	return string.gsub(r, "^%s*(.-)%s*$", "%1")
+end
 
 local function Order_SplitSaved()
 	if not HAS_SAVEDNAME then
@@ -177,12 +183,29 @@ end
 -- in server order).
 local ReorderPerm = {}
 
+-- Order entries are realm-qualified ("N'Zoth/Kaboom") since v17: with bare
+-- names, the realms shared ONE order - reordering on realm B overwrote
+-- realm A's saved order (nothing matched, so the rebuild fell back to
+-- server order and the next save clobbered the CSV). Legacy unqualified
+-- entries are read as belonging to the current realm and re-qualified on
+-- the next save. "/", "," and "#" cannot appear in character names.
 local function Reorder_Save()
+	local realm = Octo_Realm()
 	local names = {}
+	-- Preserve the other realms' saved entries untouched.
+	local old = Order_GetCSV()
+	if old then
+		for w in string.gfind(old, "[^,]+") do
+			local _, _, r = string.find(w, "^(.*)/")
+			if r and r ~= realm then
+				table.insert(names, w)
+			end
+		end
+	end
 	for slot = 1, GetNumCharacters() do
 		local name = GetCharacterInfo(ReorderPerm[slot] or slot)
 		if name then
-			table.insert(names, name)
+			table.insert(names, realm .. "/" .. name)
 		end
 	end
 	Order_SetCSV(table.concat(names, ","))
@@ -194,12 +217,20 @@ local function Reorder_Rebuild()
 	local used = {}
 	local saved = Order_GetCSV()
 	if saved then
+		local realm = Octo_Realm()
 		for w in string.gfind(saved, "[^,]+") do
-			for i = 1, numChars do
-				if not used[i] and GetCharacterInfo(i) == w then
-					used[i] = true
-					table.insert(ReorderPerm, i)
-					break
+			-- "realm/name"; a legacy bare name counts as the current realm.
+			local _, _, r, n = string.find(w, "^(.*)/(.*)$")
+			if not r then
+				r, n = realm, w
+			end
+			if r == realm then
+				for i = 1, numChars do
+					if not used[i] and GetCharacterInfo(i) == n then
+						used[i] = true
+						table.insert(ReorderPerm, i)
+						break
+					end
 				end
 			end
 		end
@@ -320,8 +351,7 @@ local function Chal_MaskForName(name)
 	if type(OCTO_BAKED_CHALLENGES) ~= "table" or not name then
 		return nil
 	end
-	local realm = GetServerName() or ""
-	realm = string.gsub(realm, "^%s*(.-)%s*$", "%1")
+	local realm = Octo_Realm()
 	return OCTO_BAKED_CHALLENGES[realm .. "/" .. name] or OCTO_BAKED_CHALLENGES[name]
 end
 
@@ -428,7 +458,13 @@ end
 
 local function Sel_Update()
 	local shown = 0
-	local name = GetCharacterInfo(CharacterSelect.selectedIndex)
+	-- selectedIndex is 0 with an empty character list; don't feed that to
+	-- GetCharacterInfo.
+	local idx = CharacterSelect and CharacterSelect.selectedIndex
+	local name = nil
+	if idx and idx >= 1 then
+		name = GetCharacterInfo(idx)
+	end
 	local mask = Chal_MaskForName(name)
 	if mask and mask > 0 then
 		local bit = 1
@@ -621,18 +657,26 @@ end
 local statusBanner = nil
 local probing = false
 
-local DOWN_MESSAGES = {}
-for _, s in ipairs({ LOGIN_FAILED, LOGIN_SERVER_DOWN, SERVER_DOWN,
-		DISCONNECTED, RESPONSE_DISCONNECTED, CHAR_LOGIN_FAILED }) do
-	DOWN_MESSAGES[s] = true
+-- Build the sets from GLOBAL NAMES, not values: with values, one nil global
+-- in a {list} constructor makes ipairs stop early and silently drops every
+-- entry after it (v17 - latent since v12).
+local function Octo_StringSet(names)
+	local t = {}
+	for i = 1, table.getn(names) do
+		local s = _G[names[i]]
+		if type(s) == "string" then
+			t[s] = true
+		end
+	end
+	return t
 end
 
-local UP_MESSAGES = {}
-for _, s in ipairs({ LOGIN_UNKNOWN_ACCOUNT, LOGIN_INCORRECT_PASSWORD,
-		LOGIN_BANNED, LOGIN_SUSPENDED, LOGIN_ALREADYONLINE, LOGIN_DBBUSY,
-		LOGIN_BADVERSION, LOGIN_NOTIME }) do
-	UP_MESSAGES[s] = true
-end
+local DOWN_MESSAGES = Octo_StringSet({ "LOGIN_FAILED", "LOGIN_SERVER_DOWN",
+	"SERVER_DOWN", "DISCONNECTED", "RESPONSE_DISCONNECTED", "CHAR_LOGIN_FAILED" })
+
+local UP_MESSAGES = Octo_StringSet({ "LOGIN_UNKNOWN_ACCOUNT",
+	"LOGIN_INCORRECT_PASSWORD", "LOGIN_BANNED", "LOGIN_SUSPENDED",
+	"LOGIN_ALREADYONLINE", "LOGIN_DBBUSY", "LOGIN_BADVERSION", "LOGIN_NOTIME" })
 
 -- Auth PROGRESS states past the TCP connect. Any of these means the server
 -- answered - even if the bogus probe account then takes ages to be rejected
@@ -643,14 +687,10 @@ end
 -- in the list - it shows while the connect is still in flight, so it proves
 -- nothing. These arrive via UPDATE_STATUS_DIALOG (which never reaches
 -- GlueDialog_Show), so the probe frame listens for the event itself.
-local ANSWER_MESSAGES = {}
-for _, s in ipairs({ LOGIN_STATE_HANDSHAKING, LOGIN_STATE_AUTHENTICATING,
-		LOGIN_STATE_CHECKINGVERSIONS, LOGIN_STATE_AUTHENTICATED,
-		LOGIN_STATE_DOWNLOADFILE, LOGIN_STATE_SURVEY }) do
-	if s then
-		ANSWER_MESSAGES[s] = true
-	end
-end
+local ANSWER_MESSAGES = Octo_StringSet({ "LOGIN_STATE_HANDSHAKING",
+	"LOGIN_STATE_AUTHENTICATING", "LOGIN_STATE_CHECKINGVERSIONS",
+	"LOGIN_STATE_AUTHENTICATED", "LOGIN_STATE_DOWNLOADFILE",
+	"LOGIN_STATE_SURVEY" })
 
 local function Status_Parent()
 	return AccountLoginUI or AccountLogin
@@ -687,11 +727,15 @@ local function Status_MarkDown(reason)
 	b:Show()
 end
 
-local function Status_MarkUp(announce)
+local function Status_MarkUp(announce, secs)
 	if announce then
 		local b = Status_EnsureBanner()
 		b:SetTextColor(0.1, 1, 0.1)
-		b:SetText("OctoWoW is UP")
+		local t = "OctoWoW is UP"
+		if secs then
+			t = t .. string.format(" |cff80c080(%.1fs)|r", secs)
+		end
+		b:SetText(t)
 		b:Show()
 	elseif statusBanner then
 		statusBanner:Hide()
@@ -707,7 +751,19 @@ end
 -- verdict clears it).
 local PROBE_SOFT = 1.2
 local PROBE_HARD = 5.0
+-- A DISCONNECTED dialog this early into a probe cannot be the probe's own
+-- result (a refused connect says LOGIN_FAILED, and a real drop needs a
+-- connection first) - it is teardown fallout from the session the player
+-- just left. Swallow it without scoring (v17: the false "appears DOWN"
+-- when returning to the login screen from character select).
+local PROBE_GRACE = 0.75
+-- After the hard-mark verdict, keep swallowing the aborted attempt's
+-- dialogs only this much longer; then stop even if no terminal dialog ever
+-- arrives (v17: DisconnectFromServer on a never-connected probe can be a
+-- silent no-op, which used to leave `probing` stuck swallowing forever).
+local PROBE_SETTLE_WINDOW = 2.0
 local probeAnswered = false -- saw an auth-progress state this probe
+local probeAnsweredAt = nil -- seconds into the probe the first answer came
 local probeSettled = false  -- hard mark already showed the verdict; swallow
                             -- the aborted attempt's fallout WITHOUT re-marking
 
@@ -726,25 +782,50 @@ probeTimer:SetScript("OnUpdate", function()
 		Status_MarkSlow()
 	end
 	if probeTimer.elapsed >= PROBE_HARD then
-		probeTimer:Hide()
-		-- The hard mark aborts the ATTEMPT, but the verdict depends on
-		-- whether the server ever spoke: a handshake that got past connect
-		-- is a server that is up, just slow to reject a bogus account.
-		if probeAnswered then
-			Status_MarkUp(true)
-		else
-			Status_MarkDown()
-		end
-		-- The verdict is final: DisconnectFromServer below raises a
-		-- DISCONNECTED dialog of our own making, and before v15 the probing
-		-- branch of GlueDialog_Show re-marked on it - flipping a hard-mark UP
-		-- to "appears DOWN (Disconnected)" a moment later.
-		probeSettled = true
-		if type(DisconnectFromServer) == "function" then
-			DisconnectFromServer()
+		if not probeSettled then
+			-- The hard mark aborts the ATTEMPT, but the verdict depends on
+			-- whether the server ever spoke: a handshake that got past connect
+			-- is a server that is up, just slow to reject a bogus account.
+			if probeAnswered then
+				Status_MarkUp(true, probeAnsweredAt)
+			else
+				Status_MarkDown()
+			end
+			-- The verdict is final: DisconnectFromServer below raises a
+			-- DISCONNECTED dialog of our own making, and before v15 the probing
+			-- branch of GlueDialog_Show re-marked on it - flipping a hard-mark UP
+			-- to "appears DOWN (Disconnected)" a moment later.
+			probeSettled = true
+			if type(DisconnectFromServer) == "function" then
+				DisconnectFromServer()
+			end
+		elseif probeTimer.elapsed >= PROBE_HARD + PROBE_SETTLE_WINDOW then
+			-- No terminal dialog ever arrived; stop swallowing.
+			probing = false
+			probeTimer:Hide()
 		end
 	end
 end)
+
+-- Deferred probe start: returning to the login screen from character select
+-- must NOT probe immediately - the old session's teardown is still in
+-- flight (see PROBE_GRACE). The delay lets it finish first.
+local probeDelayTimer = CreateFrame("Frame")
+probeDelayTimer.remaining = 0
+probeDelayTimer:Hide()
+probeDelayTimer:SetScript("OnUpdate", function()
+	probeDelayTimer.remaining = probeDelayTimer.remaining - (arg1 or 0.02)
+	if probeDelayTimer.remaining <= 0 then
+		probeDelayTimer:Hide()
+		OctoStatus_Probe()
+	end
+end)
+
+local function OctoStatus_ProbeSoon(delay)
+	probeDelayTimer.remaining = delay
+	probeDelayTimer:Show()
+	Status_MarkChecking() -- fill the corner right away; the probe follows
+end
 
 -- The auth progress states arrive as UPDATE_STATUS_DIALOG, which the stock
 -- GlueDialog handles directly - they never pass through GlueDialog_Show, so
@@ -753,14 +834,19 @@ Octo_Try("probe-events", function()
 	probeTimer:RegisterEvent("UPDATE_STATUS_DIALOG")
 	probeTimer:SetScript("OnEvent", function()
 		if probing and arg1 and ANSWER_MESSAGES[arg1] then
+			if not probeAnswered then
+				probeAnsweredAt = probeTimer.elapsed
+			end
 			probeAnswered = true
 		end
 	end)
 end)
 
 function OctoStatus_Probe()
+	probeDelayTimer:Hide() -- a direct probe supersedes a pending deferred one
 	probing = true
 	probeAnswered = false
+	probeAnsweredAt = nil
 	probeSettled = false
 	probeTimer.elapsed = 0
 	probeTimer.softShown = false
@@ -783,15 +869,22 @@ function GlueDialog_Show(which, text, data)
 			return
 		end
 		if text and DOWN_MESSAGES[text] then
+			if text == DISCONNECTED and probeTimer.elapsed < PROBE_GRACE then
+				return -- teardown fallout from the session we just left
+			end
 			probing = false
 			probeTimer:Hide()
 			Status_MarkDown(text)
 		elseif text and UP_MESSAGES[text] then
 			probing = false
 			probeTimer:Hide()
-			Status_MarkUp(true)
+			Status_MarkUp(true, probeTimer.elapsed)
 		elseif text and ANSWER_MESSAGES[text] then
-			probeAnswered = true -- OPEN_STATUS_DIALOG path for a progress state
+			-- OPEN_STATUS_DIALOG path for a progress state
+			if not probeAnswered then
+				probeAnsweredAt = probeTimer.elapsed
+			end
+			probeAnswered = true
 		end
 		return -- swallow every dialog during a probe (no Connecting/Cancel)
 	end
@@ -803,8 +896,12 @@ function GlueDialog_Show(which, text, data)
 end
 
 -- Wrap AccountLogin_OnShow: strip the "#O=..." order suffix from the login
--- box, and auto-probe once so the corner status populates by itself.
+-- box, and auto-probe once so the corner status populates by itself. On a
+-- RETURN from character select the probe is deferred (see PROBE_GRACE /
+-- OctoStatus_ProbeSoon): probing while the old session tears down was what
+-- produced the false "appears DOWN" after logout.
 local autoProbed = false
+local returningFromCharSelect = false
 if type(AccountLogin_OnShow) == "function" then
 	local Octo_OrigAccountLogin_OnShow = AccountLogin_OnShow
 	function AccountLogin_OnShow()
@@ -818,7 +915,12 @@ if type(AccountLogin_OnShow) == "function" then
 		end
 		if not autoProbed then
 			autoProbed = true
-			OctoStatus_Probe()
+			if returningFromCharSelect then
+				returningFromCharSelect = false
+				OctoStatus_ProbeSoon(2.0)
+			else
+				OctoStatus_Probe()
+			end
 		end
 	end
 end
@@ -829,6 +931,7 @@ if type(AccountLogin_Login) == "function" then
 	local Octo_OrigAccountLogin_Login = AccountLogin_Login
 	function AccountLogin_Login()
 		probing = false
+		probeDelayTimer:Hide() -- a real login cancels any pending auto-probe
 		local _, suffix = Order_SplitSaved()
 		Octo_OrigAccountLogin_Login()
 		if suffix and HAS_SAVEDNAME then
@@ -843,10 +946,13 @@ end
 local Octo_OrigCharacterSelect_OnShow = CharacterSelect_OnShow
 function CharacterSelect_OnShow()
 	probing = false
+	probeDelayTimer:Hide()
 	Status_MarkUp() -- we connected, so the server is up; clear the banner
 	-- Re-arm the auto-probe: if we later land back on the login screen
-	-- (logout/disconnect), the old verdict is stale - probe again.
+	-- (logout/disconnect), the old verdict is stale - probe again, but
+	-- DEFERRED, after the old session's teardown dialogs are done.
 	autoProbed = false
+	returningFromCharSelect = true
 	return Octo_OrigCharacterSelect_OnShow()
 end
 
@@ -873,7 +979,14 @@ end)
 local musicButtons = {}
 
 local Octo_OrigPlayGlueMusic = PlayGlueMusic
+-- Remember the last track the stock UI ASKED for, even while muted: toggling
+-- music back on then resumes the current screen's own theme instead of
+-- always restarting the login theme (v17).
+local lastGlueMusic = nil
 function PlayGlueMusic(music)
+	if music then
+		lastGlueMusic = music
+	end
 	if musicOff then
 		return
 	end
@@ -893,7 +1006,7 @@ local function Music_Toggle()
 			StopGlueMusic()
 		end
 	else
-		Octo_OrigPlayGlueMusic(CurrentGlueMusic
+		Octo_OrigPlayGlueMusic(lastGlueMusic or CurrentGlueMusic
 			or "Sound\\Music\\GlueScreenMusic\\wow_main_theme.mp3")
 	end
 	Suffix_Save()
