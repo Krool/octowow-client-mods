@@ -41,7 +41,9 @@
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
-local OCTO_VERSION = "v25"
+-- (No version constant: versions live in git tags/releases. The old
+-- OCTO_VERSION needed a manual bump every change and nothing has rendered
+-- it since the v24 tag removal.)
 
 -- Run f protected so one broken feature cannot take the whole glue screen
 -- with it. Failures are silent now that the on-screen diagnostics are gone
@@ -1201,7 +1203,15 @@ end
 -- The v18-v23 version tag (grey "OctoGlue vNN", bottom-right) was removed in
 -- v24 (owner: no debug text on screen). Survived-a-server-patch check now:
 -- the status banner appearing at all IS the mod - stock glue has none.
--- OCTO_VERSION stays for the record; nothing renders it.
+
+-- Marker for the in-game LauncherNotice (launcher git-URL installs get the
+-- addon but not this MPQ): its presence in CustomData says the full package
+-- is installed. Written every client start; harmless without the DLL.
+Octo_Try("installed-marker", function()
+	if type(WriteCustomFile) == "function" then
+		pcall(WriteCustomFile, "octoglue-installed", "1")
+	end
+end)
 
 Octo_Try("check-btn", function()
 	local parent = Status_Parent()

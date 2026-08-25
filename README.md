@@ -53,6 +53,16 @@ To uninstall: delete `Data/patch-9.mpq`, `Interface/AddOns/OctoChallenges`,
 the `OctoTools` folder, and run
 `schtasks /delete /f /tn "OctoGlue realm status"`.
 
+## Install (OctoLauncher git URL)
+
+Adding this repo's git URL to OctoLauncher as an addon works, but gets you
+the **in-game addon only** (paperdoll challenge icons, `/octochallenges`) -
+a launcher-managed addon cannot install `patch-9.mpq`, so the login /
+character-select features are not included. A one-time chat notice in-game
+points at the release when it detects an addon-only install. For
+everything, use the release zip above; the two coexist fine (the launcher
+then keeps the addon half auto-updated).
+
 ## Install (from source)
 
 As above, but build the MPQ yourself first: run `powershell -File build.ps1`

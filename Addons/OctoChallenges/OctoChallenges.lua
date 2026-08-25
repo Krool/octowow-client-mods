@@ -9,6 +9,14 @@
 -- (same ordering as Turtle_AvailableChallenges, extended by OctoChallengeTip).
 -- Guids come from Turtle's extended UnitExists: local _, guid = UnitExists(unit).
 
+-- Double-load guard: this file also ships inside the octowow-client-mods
+-- repo (root toc for launcher git-URL installs). With both addons present,
+-- the second copy must not register duplicate frames/handlers.
+if OctoChallenges_Loaded then
+	return
+end
+OctoChallenges_Loaded = true
+
 local CHALLENGES = {
 	{ name = "Slow & Steady",         icon = "Spell_Nature_TimeStop",
 	  desc = "Gaining 50% fewer experience points from defeating enemies. Lose 5% of accumulated experience from current level upon being defeated by enemies." },

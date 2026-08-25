@@ -1,0 +1,14 @@
+## Interface: 11200
+## Title: OctoWoW Client Mods
+## Notes: OctoChallenges paperdoll icons. The character-select features (reordering, row icons, server status) come from patch-9.mpq - see the GitHub release.
+## Author: Krool
+## SavedVariablesPerCharacter: OctoChallengesDB
+# This toc exists so adding the repo's git URL to OctoLauncher as an addon
+# works: the launcher clones to Interface\AddOns\octowow-client-mods and the
+# client requires <folder>\<folder>.toc. It loads the in-game addon from its
+# subfolder; the glue half (patch-9.mpq) cannot be installed this way - the
+# notice file points those users at the release installer. If you also have
+# the standalone OctoChallenges addon, remove one - a load guard prevents
+# harm, but the duplicate SavedVariables copy of whichever loads second wins.
+Addons\OctoChallenges\OctoChallenges.lua
+LauncherNotice.lua
