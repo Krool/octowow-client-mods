@@ -162,6 +162,12 @@ maintaining it, the uninstall path above leaves clients stock.
 - **Different default.** I'd suggest it ship **not** `recommended` (opt-in),
   like the non-essential mods. Happy to follow whatever bar you set for
   third-party UI.
+- **Just take what you want.** If you'd rather not depend on a third-party
+  mod at all, the repo is open — read it and lift whatever is useful
+  (a single feature, the glue-VM techniques, the whole thing) into your own
+  patch-4/5 or launcher, no attribution needed. Living in your own UI
+  patches would honestly be the better home for it; I'll keep maintaining
+  the standalone version either way.
 
 Thanks for considering it. Happy to adjust anything above — the mod entry,
 the probe behavior, the default — to whatever bar you set.
