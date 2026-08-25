@@ -53,7 +53,7 @@ if (Test-Path $addonSrc) {
 }
 
 # 3. realm-status helper -> <WoW>\OctoTools + scheduled task (every 2 min;
-#    feeds the login screen's realm status line and mirrors challenge masks)
+#    feeds the login screen's status-lamp tooltip and mirrors challenge masks)
 $toolsSrc = Join-Path $here "tools"
 $toolsDst = Join-Path $WoWDir "OctoTools"
 if (Test-Path (Join-Path $toolsSrc "realm-status.ps1")) {
@@ -81,9 +81,9 @@ if (Test-Path (Join-Path $toolsSrc "realm-status.ps1")) {
 Write-Host ""
 Write-Host "Done. Notes:"
 Write-Host "  - The login screen auto-checks the server ONCE per client start by"
-Write-Host "    briefly logging in a throwaway account ('octoprobe'). Turn it off"
-Write-Host "    by just not clicking Check Server; the auto-probe is quick and"
-Write-Host "    swallows its own dialogs."
+Write-Host "    briefly logging in a throwaway account ('octoprobe'), then shows"
+Write-Host "    the verdict as a small lamp top-right - hover it for details,"
+Write-Host "    click it to re-check. It swallows its own dialogs."
 Write-Host "  - Uninstall: delete Data\patch-9.mpq (all glue features gone), the"
 Write-Host "    OctoTools folder, Interface\AddOns\OctoChallenges, and run:"
 Write-Host '      schtasks /delete /f /tn "OctoGlue realm status"'
