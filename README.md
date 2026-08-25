@@ -46,6 +46,14 @@ normal addon; the client mod is an MPQ that must sit in `Data\`.
 - Maintained as its own repo:
   [github.com/Krool/OctoChallenges](https://github.com/Krool/OctoChallenges).
 
+## Screenshots
+
+| | |
+|---|---|
+| Login screen: status lamp + music toggle (top right) | ![Login screen with status lamp and music toggle](docs/screenshots/login-status-lamp-music.png) |
+| Character select: reorder arrows + per-row challenge icons | ![Character select with reorder arrows and challenge icons](docs/screenshots/char-select-reorder-challenge-icons.png) |
+| Character select: challenges panel + music toggle | ![Character select challenges panel](docs/screenshots/char-select-challenges-panel.png) |
+
 ## Installing
 
 Three routes, easiest first. All are safe to combine; to uninstall the client
