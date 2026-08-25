@@ -79,6 +79,44 @@
 		</Layers>
 		<HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD"/>
 	</Button>
+	<!-- Own tooltip (v28): the stock ChallengesTooltip is parentless and
+	     anchorless; cross-parent anchoring works at char select but at the
+	     login screen it ignored our SetPoint and sat unanchored bottom-left,
+	     offscreen. Instances of this template are created as CHILDREN of the
+	     same parent as the widget they describe, so they share its
+	     coordinate space by construction. Mirrors the stock tooltip's look;
+	     height is set from the font strings in Lua, like the stock one. -->
+	<Frame name="OctoTooltipTemplate" virtual="true" frameStrata="TOOLTIP" hidden="true">
+		<Size x="220" y="50"/>
+		<Backdrop bgFile="Interface\Tooltips\UI-Tooltip-Background" edgeFile="Interface\Tooltips\UI-Tooltip-Border" tile="true">
+			<EdgeSize><AbsValue val="16"/></EdgeSize>
+			<TileSize><AbsValue val="16"/></TileSize>
+			<BackgroundInsets><AbsInset left="5" right="5" top="5" bottom="5"/></BackgroundInsets>
+		</Backdrop>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentTitle" inherits="GlueFontNormal" justifyH="LEFT">
+					<Size x="200" y="0"/>
+					<Anchors>
+						<Anchor point="TOPLEFT"><Offset x="10" y="-10"/></Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentNotes" inherits="GlueFontNormalSmall" justifyH="LEFT">
+					<Size x="200" y="0"/>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentTitle" relativePoint="BOTTOMLEFT"><Offset x="0" y="-2"/></Anchor>
+					</Anchors>
+					<Color r="1.0" g="1.0" b="1.0"/>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnLoad>
+				this:SetBackdropBorderColor(1.0, 1.0, 1.0)
+				this:SetBackdropColor(0.09, 0.09, 0.19)
+			</OnLoad>
+		</Scripts>
+	</Frame>
 	<Frame name="CreditsFrame" setAllPoints="true" parent="GlueParent" enableKeyboard="true" hidden="true">
 		<Layers>
 			<Layer level="OVERLAY">

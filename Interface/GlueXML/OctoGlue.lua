@@ -838,17 +838,58 @@ local function Status_Parent()
 	return AccountLoginUI or AccountLogin
 end
 
+-- Own tooltip (v28): the stock ChallengesTooltip misplaces at the LOGIN
+-- screen (parentless + anchorless; cross-parent anchors that work at char
+-- select left it unanchored bottom-left there). Instances of our template
+-- are children of the SAME parent as the widget they describe - same
+-- coordinate space, so placement just works. `mode` picks the corner the
+-- tooltip grows toward so it stays onscreen: "inward-down" for widgets near
+-- the top-right (grows left+down), "inward-up" for widgets near the
+-- bottom-left (grows right+up). Created lazily (template load order).
+local octoTips = {}
+
+local function Octo_ShowTip(owner, parent, key, mode, title, text)
+	if not parent then
+		return
+	end
+	local f = octoTips[key]
+	if not f then
+		f = CreateFrame("Frame", "OctoTooltip" .. key, parent, "OctoTooltipTemplate")
+		f.title = _G["OctoTooltip" .. key .. "Title"]
+		f.notes = _G["OctoTooltip" .. key .. "Notes"]
+		octoTips[key] = f
+	end
+	if not f.title or not f.notes then
+		return
+	end
+	f.title:SetText(title or "")
+	f.notes:SetText(text or "")
+	f:SetHeight(10 + (f.title:GetHeight() or 12) + 2 + (f.notes:GetHeight() or 12) + 12)
+	f:ClearAllPoints()
+	if mode == "inward-up" then
+		f:SetPoint("BOTTOMLEFT", owner, "TOPRIGHT", 4, 4)
+	else
+		f:SetPoint("TOPRIGHT", owner, "BOTTOMLEFT", -4, -4)
+	end
+	f:Show()
+end
+
+local function Octo_HideTips()
+	for _, f in pairs(octoTips) do
+		f:Hide()
+	end
+end
+
 -- The lamp: a template-inherited button (Lua-only buttons never render in
--- this glue VM) whose fill texture is tinted by verdict. Tooltip reuses the
--- stock ChallengesTooltip like the challenge icons do.
+-- this glue VM) whose fill texture is tinted by verdict.
 local statusDot = nil
 local dotTitle = ""
 local dotBody = ""
 local dotTipOpen = false
 
 local function Dot_RefreshTooltip()
-	if dotTipOpen and ChallengesTooltip and ChallengesTooltip_Update then
-		ChallengesTooltip_Update(dotTitle, dotBody)
+	if dotTipOpen and statusDot then
+		Octo_ShowTip(statusDot, Status_Parent(), "Login", "inward-down", dotTitle, dotBody)
 	end
 end
 
@@ -860,19 +901,12 @@ local function Status_EnsureDot()
 		statusDot:SetFrameLevel(parent:GetFrameLevel() + 2)
 		statusDot.fill = _G["OctoStatusDotFill"]
 		statusDot:SetScript("OnEnter", function()
-			if ChallengesTooltip and ChallengesTooltip_Update then
-				dotTipOpen = true
-				ChallengesTooltip:ClearAllPoints()
-				ChallengesTooltip:SetPoint("TOPRIGHT", statusDot, "BOTTOMLEFT", -4, -4)
-				ChallengesTooltip_Update(dotTitle, dotBody)
-				ChallengesTooltip:Show()
-			end
+			dotTipOpen = true
+			Dot_RefreshTooltip()
 		end)
 		statusDot:SetScript("OnLeave", function()
 			dotTipOpen = false
-			if ChallengesTooltip then
-				ChallengesTooltip:Hide()
-			end
+			Octo_HideTips()
 		end)
 		statusDot:SetScript("OnClick", function()
 			OctoStatus_Probe()
@@ -1302,13 +1336,9 @@ local MUSIC_ICON = "Interface\\Icons\\INV_Misc_Horn_01"
 local musicTipBtn = nil
 
 local function Music_ShowTip(b)
-	if ChallengesTooltip and ChallengesTooltip_Update then
-		ChallengesTooltip:ClearAllPoints()
-		ChallengesTooltip:SetPoint("TOPRIGHT", b, "BOTTOMLEFT", -4, -4)
-		ChallengesTooltip_Update("Music: " .. (musicOff and "Off" or "On"),
-			"Click to toggle the login and character-select music.")
-		ChallengesTooltip:Show()
-	end
+	Octo_ShowTip(b, b.tipParent, b.tipKey, b.tipMode,
+		"Music: " .. (musicOff and "Off" or "On"),
+		"Click to toggle the login and character-select music.")
 end
 
 local function Music_UpdateIcons()
@@ -1348,7 +1378,7 @@ local function Music_Toggle()
 	Music_UpdateIcons()
 end
 
-local function Music_MakeButton(name, parent, point, relTo, relPoint, x, y)
+local function Music_MakeButton(name, parent, tipMode, point, relTo, relPoint, x, y)
 	if not parent or _G[name] then
 		return
 	end
@@ -1357,6 +1387,11 @@ local function Music_MakeButton(name, parent, point, relTo, relPoint, x, y)
 	b:SetFrameLevel(parent:GetFrameLevel() + 2)
 	b:SetNormalTexture(MUSIC_ICON)
 	b.offX = _G[name .. "Off"]
+	-- Tooltip home: same parent as the button (see Octo_ShowTip), growing
+	-- toward screen center from the button's corner of the screen.
+	b.tipParent = parent
+	b.tipKey = name
+	b.tipMode = tipMode
 	b:SetScript("OnClick", Music_Toggle)
 	b:SetScript("OnEnter", function()
 		musicTipBtn = b
@@ -1364,9 +1399,7 @@ local function Music_MakeButton(name, parent, point, relTo, relPoint, x, y)
 	end)
 	b:SetScript("OnLeave", function()
 		musicTipBtn = nil
-		if ChallengesTooltip then
-			ChallengesTooltip:Hide()
-		end
+		Octo_HideTips()
 	end)
 	table.insert(musicButtons, b)
 end
@@ -1384,16 +1417,17 @@ function Octo_Music_EnsureButtons()
 	-- The lamp is 32px at TOPRIGHT -24,-24 (center x -40, bottom y -56);
 	-- a 24px icon centered under it sits at TOPRIGHT -28, top y -66
 	-- (10px gap covers the quickslot ring's +6 overhang).
-	Music_MakeButton("OctoMusicButtonLogin", Status_Parent(),
+	Music_MakeButton("OctoMusicButtonLogin", Status_Parent(), "inward-down",
 		"TOPRIGHT", nil, nil, -28, -66)
 	-- Char select: beside the AddOns button, bottom-left (14px offset so
-	-- the ring overhang clears the button border).
+	-- the ring overhang clears the button border). Tooltip grows up+right -
+	-- down-left would run off the bottom of the screen here.
 	local addons = _G["CharacterSelectAddonsButton"]
 	if addons then
-		Music_MakeButton("OctoMusicButtonCharSelect", CharacterSelectUI,
+		Music_MakeButton("OctoMusicButtonCharSelect", CharacterSelectUI, "inward-up",
 			"LEFT", addons, "RIGHT", 14, 0)
 	else
-		Music_MakeButton("OctoMusicButtonCharSelect", CharacterSelectUI,
+		Music_MakeButton("OctoMusicButtonCharSelect", CharacterSelectUI, "inward-up",
 			"BOTTOMLEFT", nil, nil, 16, 40)
 	end
 	Music_UpdateIcons()
