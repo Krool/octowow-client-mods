@@ -321,6 +321,29 @@ local function Arrow_RefreshAll()
 	end
 end
 
+-- Belt-and-braces for the glue alpha reset (v28): the quirk that eats
+-- creation-time SetAlpha before first display bit AGAIN on the first
+-- char-select visit after the v22-v27 rebuilds (arrows full-bright until
+-- hovered), so per-list-update re-assert alone is not enough - something
+-- can still reset alpha after the last update. Re-assert every frame for
+-- the first second after the screen shows; started by the
+-- CharacterSelect_OnShow wrapper.
+local arrowFixTimer = CreateFrame("Frame")
+arrowFixTimer.remaining = 0
+arrowFixTimer:Hide()
+arrowFixTimer:SetScript("OnUpdate", function()
+	arrowFixTimer.remaining = arrowFixTimer.remaining - (arg1 or 0.02)
+	Arrow_RefreshAll()
+	if arrowFixTimer.remaining <= 0 then
+		arrowFixTimer:Hide()
+	end
+end)
+
+local function Arrow_StartShowFix()
+	arrowFixTimer.remaining = 1.0
+	arrowFixTimer:Show()
+end
+
 local function Reorder_MakeArrow(slot, parent, dir, yOff)
 	local name = "OctoReorder" .. (dir < 0 and "Up" or "Down") .. slot
 	-- The stock glue scrollbar button templates provably render at this
@@ -1173,6 +1196,9 @@ if type(AccountLogin_OnShow) == "function" then
 	local Octo_OrigAccountLogin_OnShow = AccountLogin_OnShow
 	function AccountLogin_OnShow()
 		Octo_OrigAccountLogin_OnShow()
+		-- Deferred until first show: the OctoMusicButtonTemplate is parsed
+		-- AFTER this file's <Script> tag runs (see Octo_Music_EnsureButtons).
+		Octo_Try("music-ensure", Octo_Music_EnsureButtons)
 		if AccountLoginAccountEdit and AccountLoginAccountEdit.GetText then
 			local t = AccountLoginAccountEdit:GetText() or ""
 			local cut = string.find(t, "#", 1, true)
@@ -1218,6 +1244,8 @@ end
 local Octo_OrigCharacterSelect_OnShow = CharacterSelect_OnShow
 function CharacterSelect_OnShow()
 	Octo_Try("chal-live", Chal_LoadLive) -- fresh masks for the row icons
+	Octo_Try("music-ensure", Octo_Music_EnsureButtons)
+	Octo_Try("arrow-alpha", Arrow_StartShowFix)
 	probing = false
 	probeDelayTimer:Hide()
 	Status_MarkUp() -- we connected, so the server is up; clear the banner
@@ -1343,7 +1371,15 @@ local function Music_MakeButton(name, parent, point, relTo, relPoint, x, y)
 	table.insert(musicButtons, b)
 end
 
-Octo_Try("music-btn", function()
+-- LAZY creation (v27 fix): this file executes from a <Script> tag at the
+-- TOP of CreditsFrame.xml, BEFORE the OctoMusicButtonTemplate below it has
+-- been parsed - creating the buttons at load errored inside Octo_Try and
+-- they silently never existed. Templates are only usable after the whole
+-- XML file loads, so build the buttons on first OnShow instead (the lamp
+-- always worked for exactly this reason: it is created lazily at the first
+-- probe). Both OnShow wrappers call this; MakeButton's _G[name] guard makes
+-- repeats free.
+function Octo_Music_EnsureButtons()
 	-- Login screen: stacked in the top-right corner under the status lamp.
 	-- The lamp is 32px at TOPRIGHT -24,-24 (center x -40, bottom y -56);
 	-- a 24px icon centered under it sits at TOPRIGHT -28, top y -66
@@ -1361,6 +1397,9 @@ Octo_Try("music-btn", function()
 			"BOTTOMLEFT", nil, nil, 16, 40)
 	end
 	Music_UpdateIcons()
+end
+
+Octo_Try("music-load", function()
 	if musicOff and type(StopGlueMusic) == "function" then
 		StopGlueMusic() -- the theme may already be playing when we load
 	end
