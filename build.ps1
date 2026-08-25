@@ -1,7 +1,7 @@
 # Rebuild Data\patch-9.mpq from the files under patch-Z-src\Interface\.
 # (Numeric name on purpose: this exe gives lettered patches LOWER priority
 # than numbered ones - a patch-Z.mpq loads but loses to patch-4/5.)
-# Run from anywhere: powershell -File C:\Users\junk7\WoW\patch-Z-src\build.ps1
+# Run from anywhere: powershell -File <WoW>\patch-Z-src\build.ps1
 # The game must be CLOSED (it holds Data\ archives open on some operations).
 $src = $PSScriptRoot
 $wow = Split-Path $src
