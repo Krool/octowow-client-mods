@@ -20,6 +20,14 @@ A pure client-side UI mod, two cooperating halves:
   the player's own challenges over the existing `TW_UI` addon channel and
   feeds the character-select icons.
 
+One piece is deliberately NOT in this mod entry: an optional Windows
+scheduled task ("OctoGlue realm status", from the release zip's installer)
+that feeds the lamp per-realm status scraped from your website every 2
+minutes. A launcher mod install shouldn't be registering scheduled tasks, so
+under this entry the lamp simply judges the login server only. That is a
+built-in degradation path, not a broken state; players who want the realm
+lines can run the release installer on top, and both installs coexist.
+
 Source and full write-up: github.com/Krool/octowow-client-mods
 Rollback for a player is always "delete `Data\patch-9.mpq`".
 
@@ -107,6 +115,44 @@ No other launcher code changes are needed — the Mods tab, install/uninstall,
   masks live and make order-saves crash-proof; with nampower absent the mod
   still loads and every feature degrades gracefully.
 
+## Things you should know as the server operator
+
+- **The status lamp performs a real login probe.** Once per client start (and
+  on lamp click) it briefly connects to your login server with a throwaway
+  account name (`octoprobe`) and reads how far the auth handshake gets,
+  swallowing its own dialogs. No player credentials are involved, but your
+  auth logs will show those failed logins. If you'd rather it used a
+  designated account name, or backed off harder, say so and I'll change it;
+  the probe already skips voluntary returns to the login screen to avoid
+  hammering auth rate limits.
+- **Nothing is hidden from your integrity checks.** `patch-9.mpq` is a plain
+  MPQ in `Data\`, fully visible to Warden MPQ checks or any server-side
+  audit; there's no obfuscation and no DLL. If you ever want to flag or
+  block it server-side, its filename and contents are stable per release.
+- **Content is data-driven from your own UI.** The challenge icon list mirrors
+  the challenge table your patch-4 UI ships; if you add or reorder
+  challenges server-side I need a release to match (see maintenance below).
+
+## Verifying and rolling back
+
+Quick QA for whoever reviews this: enable the mod, launch, and the lamp
+top-right of the login screen IS the mod working (stock glue draws nothing
+there). Uncheck the mod and your `installedFiles` tracking removes exactly
+the three files. If a release ever misbehaves at character select, deleting
+`Data\patch-9.mpq` restores stock instantly; nothing else in the install can
+affect the glue screens.
+
+## Maintenance commitment
+
+Built against your server UI (patch-4/5) as of 2026-08-25. The mod redefines
+character-select functions after your versions load, so a server patch that
+rewrites `CharacterSelect.lua` may need a re-base: after every server UI
+update I re-diff against the new patch-4/5 and publish a fixed release before
+bumping the pinned tag. I'll keep the archive layout and sha256 stable within
+a tag, ping you (issue or reply on this thread) on any version bump with the
+new tag + sha256, and never repoint an existing tag's asset. If I ever stop
+maintaining it, the uninstall path above leaves clients stock.
+
 ## Alternatives, if you'd rather
 
 - **MPQ-only mod + curated addon.** Drop the two addon lines from `extractMap`
@@ -117,5 +163,5 @@ No other launcher code changes are needed — the Mods tab, install/uninstall,
   like the non-essential mods. Happy to follow whatever bar you set for
   third-party UI.
 
-I'll keep the release tag, archive layout, and sha256 stable, and ping you on
-any version bump. Thanks for considering it.
+Thanks for considering it. Happy to adjust anything above — the mod entry,
+the probe behavior, the default — to whatever bar you set.
