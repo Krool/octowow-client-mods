@@ -35,8 +35,9 @@
 --     OctoChallenges addon via nampower's WriteCustomFile, or mirrored from
 --     SavedVariables by the realm-status scheduled task), falling back to
 --     the static OCTO_BAKED_CHALLENGES table in OctoGlueData.lua.
---   * OctoStatus  - dialog-free ~1s server probe in the top-right corner,
---     auto-run once at the login screen, re-run via the Check Server button.
+--   * OctoStatus  - dialog-free ~1s server probe, shown as a green/yellow/
+--     red lamp top-right of the login screen; details in its hover tooltip,
+--     click to re-check. Auto-run once at the login screen.
 --   * OctoMusic   - "Music: On/Off" toggle (login screen + char select);
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
@@ -759,11 +760,13 @@ function CharacterSelectButton_OnDoubleClick()
 end
 
 -- ------------------------------------------------------------- OctoStatus --
--- Quick "ping" in the top-right corner: connect with a throwaway account,
--- judge by what comes back and how fast. A connection failure or silence
--- past the timeout means down; an auth-level rejection means the server
--- answered, so it is up. ALL dialogs are swallowed while probing.
-local statusBanner = nil
+-- Quick "ping": connect with a throwaway account, judge by what comes back
+-- and how fast. A connection failure or silence past the timeout means down;
+-- an auth-level rejection means the server answered, so it is up. ALL
+-- dialogs are swallowed while probing. Shown as a single 16px status lamp
+-- top-right (green/yellow/red); details live in its hover tooltip and a
+-- click re-runs the probe (the old text banner + Check Server button were
+-- dropped as too garish - owner, v27).
 local probing = false
 
 -- Build the sets from GLOBAL NAMES, not values: with values, one nil global
@@ -811,14 +814,47 @@ local function Status_Parent()
 	return AccountLoginUI or AccountLogin
 end
 
-local function Status_EnsureBanner()
-	if not statusBanner then
-		statusBanner = Status_Parent():CreateFontString("OctoStatusBanner", "OVERLAY", "GlueFontNormalLarge")
-		statusBanner:SetPoint("TOPRIGHT", Status_Parent(), "TOPRIGHT", -20, -20)
-		statusBanner:SetJustifyH("RIGHT")
-		statusBanner:Hide()
+-- The lamp: a template-inherited button (Lua-only buttons never render in
+-- this glue VM) whose fill texture is tinted by verdict. Tooltip reuses the
+-- stock ChallengesTooltip like the challenge icons do.
+local statusDot = nil
+local dotTitle = ""
+local dotBody = ""
+local dotTipOpen = false
+
+local function Dot_RefreshTooltip()
+	if dotTipOpen and ChallengesTooltip and ChallengesTooltip_Update then
+		ChallengesTooltip_Update(dotTitle, dotBody)
 	end
-	return statusBanner
+end
+
+local function Status_EnsureDot()
+	if not statusDot then
+		local parent = Status_Parent()
+		statusDot = CreateFrame("Button", "OctoStatusDot", parent, "OctoStatusDotTemplate")
+		statusDot:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -24, -24)
+		statusDot:SetFrameLevel(parent:GetFrameLevel() + 2)
+		statusDot.fill = _G["OctoStatusDotFill"]
+		statusDot:SetScript("OnEnter", function()
+			if ChallengesTooltip and ChallengesTooltip_Update then
+				dotTipOpen = true
+				ChallengesTooltip:ClearAllPoints()
+				ChallengesTooltip:SetPoint("TOPRIGHT", statusDot, "BOTTOMLEFT", -4, -4)
+				ChallengesTooltip_Update(dotTitle, dotBody)
+				ChallengesTooltip:Show()
+			end
+		end)
+		statusDot:SetScript("OnLeave", function()
+			dotTipOpen = false
+			if ChallengesTooltip then
+				ChallengesTooltip:Hide()
+			end
+		end)
+		statusDot:SetScript("OnClick", function()
+			OctoStatus_Probe()
+		end)
+	end
+	return statusDot
 end
 
 -- ---- realm (world server) status, v23 ----
@@ -832,7 +868,6 @@ end
 -- in here. Glue has no clock, so freshness is shown as the poller's own
 -- HH:mm stamp rather than computed. Format: v1|HH:mm|on/total|Name=UP,...
 local REALM_FILE = "octoglue-realmstatus"
-local realmLine = nil
 
 local function Realms_Read()
 	if type(ReadCustomFile) ~= "function" then
@@ -856,109 +891,103 @@ local function Realms_Read()
 	return r
 end
 
--- Paints the small line under the banner and returns the parsed status so
--- Status_MarkUp can veto its green verdict when every realm is down.
-local function Status_UpdateRealmLine()
-	local b = Status_EnsureBanner()
-	if not realmLine then
-		realmLine = Status_Parent():CreateFontString("OctoRealmLine", "OVERLAY", "GlueFontHighlightSmall")
-		realmLine:SetPoint("TOPRIGHT", b, "BOTTOMRIGHT", 0, -4)
-		realmLine:SetJustifyH("RIGHT")
-	end
-	local r = Realms_Read()
+-- One tooltip line per realm plus a summary state: "up" (all), "partial",
+-- "down" (none), or "unknown" (no feed / failed fetch).
+local function Realms_Describe(r)
 	if not r then
-		realmLine:Hide()
-		return nil
+		return "Realms: no data (helper task not running)", "unknown"
 	end
 	if not r.online then
-		realmLine:SetTextColor(0.6, 0.6, 0.6)
-		realmLine:SetText("Realms: unknown (web check failed " .. r.when .. ")")
-		realmLine:Show()
-		return nil
+		return "Realms: web check failed (" .. (r.when or "?") .. ")", "unknown"
 	end
-	local txt = "Realms: " .. r.online .. "/" .. r.total .. " up"
-	if r.online > 0 and r.online < r.total and r.detail then
-		local down = ""
-		for name, st in string.gfind(r.detail, "([^=,]+)=([A-Z]+)") do
-			if st == "DOWN" then
-				if down ~= "" then
-					down = down .. ", "
-				end
-				down = down .. name
+	local body = "Realms (web " .. (r.when or "?") .. "):"
+	if r.detail then
+		for name, st in string.gfind(r.detail, "([^=,|]+)=([A-Z]+)") do
+			if st == "UP" then
+				body = body .. "\n" .. name .. ": up"
+			else
+				body = body .. "\n" .. name .. ": DOWN"
 			end
 		end
-		if down ~= "" then
-			txt = txt .. " - " .. down .. " down"
+	end
+	local state = "up"
+	if r.online == 0 then
+		state = "down"
+	elseif r.online < r.total then
+		state = "partial"
+	end
+	return body, state
+end
+
+-- The single verdict paint. The probe only proves the LOGIN server answers;
+-- the realm feed can veto its green (the 2026-08-24 outage: auth answered
+-- while every realm was offline). Colors: green = login up and no realm
+-- known down; yellow = still checking, or partial realm outage; red = login
+-- down, or every realm down. Unknown realm data leans green (pre-v23
+-- behavior) with the tooltip saying so.
+local function Status_Paint(loginState, detail)
+	local d = Status_EnsureDot()
+	d:Show()
+	local rline, rstate = Realms_Describe(Realms_Read())
+	local login, color
+	if loginState == "checking" then
+		dotTitle = "OctoWoW: checking..."
+		login = "Login server: probing..."
+		color = "yellow"
+	elseif loginState == "slow" then
+		dotTitle = "OctoWoW: no answer yet..."
+		login = "Login server: still waiting for an answer"
+		color = "yellow"
+	elseif loginState == "down" then
+		dotTitle = "OctoWoW is DOWN"
+		login = "Login server: DOWN (" .. (detail or "no answer within 5s") .. ")"
+		color = "red"
+	else -- "up"; detail = answer latency in seconds (may be nil)
+		login = "Login server: up"
+		if detail then
+			login = login .. string.format(" (answered in %.1fs)", detail)
+		end
+		if rstate == "down" then
+			dotTitle = "OctoWoW realms are DOWN"
+			color = "red"
+		elseif rstate == "partial" then
+			dotTitle = "OctoWoW: partial outage"
+			color = "yellow"
+		else
+			dotTitle = "OctoWoW is UP"
+			color = "green"
 		end
 	end
-	txt = txt .. " (web " .. r.when .. ")"
-	if r.online == 0 then
-		realmLine:SetTextColor(1, 0.15, 0.15)
-	elseif r.online < r.total then
-		realmLine:SetTextColor(1, 0.55, 0.1)
+	if color == "red" then
+		if d.fill then d.fill:SetVertexColor(1, 0.15, 0.15) end
+	elseif color == "yellow" then
+		if d.fill then d.fill:SetVertexColor(1, 0.82, 0) end
 	else
-		realmLine:SetTextColor(0.1, 1, 0.1)
+		if d.fill then d.fill:SetVertexColor(0.1, 1, 0.1) end
 	end
-	realmLine:SetText(txt)
-	realmLine:Show()
-	return r
+	dotBody = login .. "\n" .. rline .. "\n\nClick to re-check."
+	Dot_RefreshTooltip()
 end
 
-local function Status_HideRealmLine()
-	if realmLine then
-		realmLine:Hide()
-	end
-end
-
+-- The probe machinery below is verdict-logic only; it talks to the UI
+-- through these four marks (kept from the banner era so it never changed).
 local function Status_MarkChecking()
-	local b = Status_EnsureBanner()
-	b:SetTextColor(1, 0.82, 0)
-	b:SetText("Checking OctoWoW...")
-	b:Show()
-	Status_UpdateRealmLine()
+	Status_Paint("checking")
 end
 
 local function Status_MarkSlow()
-	local b = Status_EnsureBanner()
-	b:SetTextColor(1, 0.55, 0.1)
-	b:SetText("OctoWoW: no answer yet...")
-	b:Show()
-	Status_UpdateRealmLine()
+	Status_Paint("slow")
 end
 
 local function Status_MarkDown(reason)
-	local b = Status_EnsureBanner()
-	b:SetTextColor(1, 0.15, 0.15)
-	b:SetText("OctoWoW appears DOWN\n(" .. (reason or "no answer within 5s") .. ")")
-	b:Show()
-	Status_UpdateRealmLine()
+	Status_Paint("down", reason)
 end
 
 local function Status_MarkUp(announce, secs)
 	if announce then
-		local b = Status_EnsureBanner()
-		-- The probe only proves the LOGIN server answers. If the realm feed
-		-- says every world server is down, green would be a lie (the
-		-- 2026-08-24 outage): the realm verdict overrides.
-		local r = Status_UpdateRealmLine()
-		if r and r.online == 0 then
-			b:SetTextColor(1, 0.15, 0.15)
-			b:SetText("OctoWoW realms are DOWN\n(login server answers)")
-			b:Show()
-			return
-		end
-		b:SetTextColor(0.1, 1, 0.1)
-		local t = "OctoWoW is UP"
-		if secs then
-			t = t .. string.format(" |cff80c080(%.1fs)|r", secs)
-		end
-		b:SetText(t)
-		b:Show()
-	else
-		if statusBanner then
-			statusBanner:Hide()
-		end
-		Status_HideRealmLine()
+		Status_Paint("up", secs)
+	elseif statusDot then
+		statusDot:Hide()
 	end
 end
 
@@ -1213,19 +1242,6 @@ Octo_Try("installed-marker", function()
 	end
 end)
 
-Octo_Try("check-btn", function()
-	local parent = Status_Parent()
-	if parent and not _G["OctoStatusCheckButton"] then
-		local b = CreateFrame("Button", "OctoStatusCheckButton", parent, "GlueButtonSmallTemplate")
-		b:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -20, -75)
-		b:SetFrameLevel(parent:GetFrameLevel() + 2)
-		b:SetText("Check Server")
-		b:SetScript("OnClick", function()
-			OctoStatus_Probe()
-		end)
-	end
-end)
-
 -- -------------------------------------------------------------- OctoMusic --
 -- The glue VM has no volume cvars, but it DOES have the music transport:
 -- PlayGlueMusic/StopGlueMusic (the stock GlueParent.lua drives them). So the
@@ -1282,9 +1298,9 @@ local function Music_MakeButton(name, parent, point, relTo, relPoint, x, y)
 end
 
 Octo_Try("music-btn", function()
-	-- Login screen: under the Check Server button.
+	-- Login screen: under the status lamp (which sits at -24,-24).
 	Music_MakeButton("OctoMusicButtonLogin", Status_Parent(),
-		"TOPRIGHT", nil, nil, -20, -110)
+		"TOPRIGHT", nil, nil, -20, -50)
 	-- Char select: beside the AddOns button, bottom-left.
 	local addons = _G["CharacterSelectAddonsButton"]
 	if addons then

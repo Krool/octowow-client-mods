@@ -60,8 +60,16 @@ if (Test-Path (Join-Path $toolsSrc "realm-status.ps1")) {
     if (-not (Test-Path $toolsDst)) { New-Item -ItemType Directory $toolsDst | Out-Null }
     Copy-Item (Join-Path $toolsSrc "realm-status.ps1"), (Join-Path $toolsSrc "realm-status.vbs") $toolsDst -Force
     $vbs = Join-Path $toolsDst "realm-status.vbs"
-    schtasks /create /f /tn "OctoGlue realm status" /sc minute /mo 2 /tr "wscript.exe //B \"$vbs\"" | Out-Null
-    if ($LASTEXITCODE -eq 0) {
+    # Register-ScheduledTask, NOT schtasks /tr: embedded quotes in /tr get
+    # mangled through PowerShell's native-arg escaping (the stored command
+    # ends up as //B " path\ and the task fails with result 1 forever).
+    $ok = $true
+    try {
+        $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "//B `"$vbs`""
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration (New-TimeSpan -Days 3650)
+        Register-ScheduledTask -TaskName "OctoGlue realm status" -Action $action -Trigger $trigger -Force -ErrorAction Stop | Out-Null
+    } catch { $ok = $false }
+    if ($ok) {
         Write-Host "  scheduled task 'OctoGlue realm status' registered (every 2 min)"
         # prime both CustomData files now so the first launch already has data
         powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $toolsDst "realm-status.ps1")

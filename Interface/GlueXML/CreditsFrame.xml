@@ -24,6 +24,35 @@
 		</Layers>
 		<HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD"/>
 	</Button>
+	<!-- Status lamp (v27): round ring + fill from the stock radio-button
+	     sprite sheet (quarters: 0-.25 ring outline, .5-.75 white fill glow);
+	     OctoGlue tints $parentFill green/yellow/red by verdict. -->
+	<Button name="OctoStatusDotTemplate" virtual="true">
+		<Size><AbsDimension x="16" y="16"/></Size>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture name="$parentRing" file="Interface\Buttons\UI-RadioButton">
+					<Anchors>
+						<Anchor point="TOPLEFT"/>
+						<Anchor point="BOTTOMRIGHT"/>
+					</Anchors>
+					<TexCoords left="0" right="0.25" top="0" bottom="1"/>
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK">
+				<Texture name="$parentFill" file="Interface\Buttons\UI-RadioButton">
+					<Anchors>
+						<Anchor point="TOPLEFT"/>
+						<Anchor point="BOTTOMRIGHT"/>
+					</Anchors>
+					<TexCoords left="0.5" right="0.75" top="0" bottom="1"/>
+				</Texture>
+			</Layer>
+		</Layers>
+		<HighlightTexture file="Interface\Buttons\UI-RadioButton" alphaMode="ADD">
+			<TexCoords left="0.5" right="0.75" top="0" bottom="1"/>
+		</HighlightTexture>
+	</Button>
 	<Frame name="CreditsFrame" setAllPoints="true" parent="GlueParent" enableKeyboard="true" hidden="true">
 		<Layers>
 			<Layer level="OVERLAY">
