@@ -38,7 +38,8 @@
 --   * OctoStatus  - dialog-free ~1s server probe, shown as a green/yellow/
 --     red lamp top-right of the login screen; details in its hover tooltip,
 --     click to re-check. Auto-run once at the login screen.
---   * OctoMusic   - "Music: On/Off" toggle (login screen + char select);
+--   * OctoMusic   - music toggle icon (under the lamp at login, beside the
+--     char-select AddOns button); horn = on, greyed + red X = off;
 --     shadows PlayGlueMusic so the choice sticks across glue screens, and
 --     persists as a "#M=0" token in the saved-account-name suffix.
 
@@ -1266,9 +1267,42 @@ function PlayGlueMusic(music)
 	return Octo_OrigPlayGlueMusic(music)
 end
 
-local function Music_UpdateLabels()
+-- v27: wide "Music: On/Off" text buttons replaced by 24px icon buttons
+-- (owner) - a horn, greyed with a red X overlay when muted; details on
+-- hover via the stock tooltip, like everything else.
+local MUSIC_ICON = "Interface\\Icons\\INV_Misc_Horn_01"
+local musicTipBtn = nil
+
+local function Music_ShowTip(b)
+	if ChallengesTooltip and ChallengesTooltip_Update then
+		ChallengesTooltip:ClearAllPoints()
+		ChallengesTooltip:SetPoint("TOPRIGHT", b, "BOTTOMLEFT", -4, -4)
+		ChallengesTooltip_Update("Music: " .. (musicOff and "Off" or "On"),
+			"Click to toggle the login and character-select music.")
+		ChallengesTooltip:Show()
+	end
+end
+
+local function Music_UpdateIcons()
 	for _, b in ipairs(musicButtons) do
-		b:SetText(musicOff and "Music: Off" or "Music: On")
+		local tex = b:GetNormalTexture()
+		if tex then
+			if musicOff then
+				tex:SetVertexColor(0.35, 0.35, 0.35)
+			else
+				tex:SetVertexColor(1, 1, 1)
+			end
+		end
+		if b.offX then
+			if musicOff then
+				b.offX:Show()
+			else
+				b.offX:Hide()
+			end
+		end
+	end
+	if musicTipBtn then
+		Music_ShowTip(musicTipBtn) -- refresh an open tooltip in place
 	end
 end
 
@@ -1283,35 +1317,50 @@ local function Music_Toggle()
 			or "Sound\\Music\\GlueScreenMusic\\wow_main_theme.mp3")
 	end
 	Suffix_Save()
-	Music_UpdateLabels()
+	Music_UpdateIcons()
 end
 
 local function Music_MakeButton(name, parent, point, relTo, relPoint, x, y)
 	if not parent or _G[name] then
 		return
 	end
-	local b = CreateFrame("Button", name, parent, "GlueButtonSmallTemplate")
+	local b = CreateFrame("Button", name, parent, "OctoMusicButtonTemplate")
 	b:SetPoint(point, relTo or parent, relPoint or point, x, y)
 	b:SetFrameLevel(parent:GetFrameLevel() + 2)
+	b:SetNormalTexture(MUSIC_ICON)
+	b.offX = _G[name .. "Off"]
 	b:SetScript("OnClick", Music_Toggle)
+	b:SetScript("OnEnter", function()
+		musicTipBtn = b
+		Music_ShowTip(b)
+	end)
+	b:SetScript("OnLeave", function()
+		musicTipBtn = nil
+		if ChallengesTooltip then
+			ChallengesTooltip:Hide()
+		end
+	end)
 	table.insert(musicButtons, b)
 end
 
 Octo_Try("music-btn", function()
-	-- Login screen: under the status lamp (32px at -24,-24, so it reaches
-	-- y -56; start below that).
+	-- Login screen: stacked in the top-right corner under the status lamp.
+	-- The lamp is 32px at TOPRIGHT -24,-24 (center x -40, bottom y -56);
+	-- a 24px icon centered under it sits at TOPRIGHT -28, top y -66
+	-- (10px gap covers the quickslot ring's +6 overhang).
 	Music_MakeButton("OctoMusicButtonLogin", Status_Parent(),
-		"TOPRIGHT", nil, nil, -20, -62)
-	-- Char select: beside the AddOns button, bottom-left.
+		"TOPRIGHT", nil, nil, -28, -66)
+	-- Char select: beside the AddOns button, bottom-left (14px offset so
+	-- the ring overhang clears the button border).
 	local addons = _G["CharacterSelectAddonsButton"]
 	if addons then
 		Music_MakeButton("OctoMusicButtonCharSelect", CharacterSelectUI,
-			"LEFT", addons, "RIGHT", 8, 0)
+			"LEFT", addons, "RIGHT", 14, 0)
 	else
 		Music_MakeButton("OctoMusicButtonCharSelect", CharacterSelectUI,
 			"BOTTOMLEFT", nil, nil, 16, 40)
 	end
-	Music_UpdateLabels()
+	Music_UpdateIcons()
 	if musicOff and type(StopGlueMusic) == "function" then
 		StopGlueMusic() -- the theme may already be playing when we load
 	end

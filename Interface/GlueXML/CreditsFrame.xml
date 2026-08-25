@@ -53,6 +53,32 @@
 			<TexCoords left="0.5" right="0.75" top="0" bottom="1"/>
 		</HighlightTexture>
 	</Button>
+	<!-- Music toggle (v27): quickslot-ringed icon button; the icon itself is
+	     set from Lua (SetNormalTexture, same as the challenge icons). The
+	     $parentOff red X (group-loot pass art) shows when music is muted -
+	     declared here because Lua-created textures are unproven in glue. -->
+	<Button name="OctoMusicButtonTemplate" virtual="true">
+		<Size><AbsDimension x="24" y="24"/></Size>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture name="$parentRing" file="Interface\Buttons\UI-Quickslot2">
+					<Anchors>
+						<Anchor point="TOPLEFT"><Offset><AbsDimension x="-6" y="6"/></Offset></Anchor>
+						<Anchor point="BOTTOMRIGHT"><Offset><AbsDimension x="6" y="-6"/></Offset></Anchor>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<Texture name="$parentOff" file="Interface\Buttons\UI-GroupLoot-Pass-Up" hidden="true">
+					<Anchors>
+						<Anchor point="TOPLEFT"/>
+						<Anchor point="BOTTOMRIGHT"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+		</Layers>
+		<HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD"/>
+	</Button>
 	<Frame name="CreditsFrame" setAllPoints="true" parent="GlueParent" enableKeyboard="true" hidden="true">
 		<Layers>
 			<Layer level="OVERLAY">
