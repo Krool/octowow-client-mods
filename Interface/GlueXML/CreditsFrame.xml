@@ -28,7 +28,7 @@
 	     sprite sheet (quarters: 0-.25 ring outline, .5-.75 white fill glow);
 	     OctoGlue tints $parentFill green/yellow/red by verdict. -->
 	<Button name="OctoStatusDotTemplate" virtual="true">
-		<Size><AbsDimension x="16" y="16"/></Size>
+		<Size><AbsDimension x="32" y="32"/></Size>
 		<Layers>
 			<Layer level="BACKGROUND">
 				<Texture name="$parentRing" file="Interface\Buttons\UI-RadioButton">

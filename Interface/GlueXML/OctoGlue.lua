@@ -763,7 +763,7 @@ end
 -- Quick "ping": connect with a throwaway account, judge by what comes back
 -- and how fast. A connection failure or silence past the timeout means down;
 -- an auth-level rejection means the server answered, so it is up. ALL
--- dialogs are swallowed while probing. Shown as a single 16px status lamp
+-- dialogs are swallowed while probing. Shown as a single 32px status lamp
 -- top-right (green/yellow/red); details live in its hover tooltip and a
 -- click re-runs the probe (the old text banner + Check Server button were
 -- dropped as too garish - owner, v27).
@@ -1298,9 +1298,10 @@ local function Music_MakeButton(name, parent, point, relTo, relPoint, x, y)
 end
 
 Octo_Try("music-btn", function()
-	-- Login screen: under the status lamp (which sits at -24,-24).
+	-- Login screen: under the status lamp (32px at -24,-24, so it reaches
+	-- y -56; start below that).
 	Music_MakeButton("OctoMusicButtonLogin", Status_Parent(),
-		"TOPRIGHT", nil, nil, -20, -50)
+		"TOPRIGHT", nil, nil, -20, -62)
 	-- Char select: beside the AddOns button, bottom-left.
 	local addons = _G["CharacterSelectAddonsButton"]
 	if addons then
