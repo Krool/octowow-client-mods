@@ -449,6 +449,50 @@ OctoReorder persistence and re-evaluate baked-vs-live challenge data.
 
 ---
 
+## 6b. Client-data forensics (OctoTravel research, 2026-08-28)
+
+Techniques proven while building the OctoTravel addon
+(github.com/Krool/OctoTravel). All parsing done offline with node
+scripts; WDBC layout is trivial (20-byte header: magic, recordCount,
+fieldCount, recordSize, stringBlockSize; all fields 4 bytes, strings
+are offsets into the block after the records).
+
+- **Effective DBCs live in patch-4** (highest built-in archive carrying
+  them). A RUNNING client locks archives with a sharing violation
+  (MPQEditor exit 32) — copy the MPQ, extract from the copy. CLI quirk:
+  wildcard masks (`DBFilesClient\Taxi*`) sometimes work where exact
+  file names fail.
+- **WorldMapArea.dbc + AreaTable.dbc** (enUS name = AreaTable field 11)
+  give the authoritative world-map zone list and each zone's world-yard
+  rect (L/R/T/B floats, fields 4-7). Converts world coords to map
+  percent: `px=(L-wy)/(L-R)*100`, `py=(T-wx)/(T-B)*100`. Zone rects
+  OVERLAP — one world point can render in several zone frames, which is
+  also why the pfQuest-octo db shows one NPC with "spawns" in two zones.
+  Dungeon-entrance micro-maps (`*Entrance` rows) locate entrances: the
+  rect center in the parent frame is the entrance spot.
+- **Boats/zeppelins are taxi paths.** TaxiPathNode.dbc (9 fields: id,
+  path, index, map, x, y, z, flags, delay) holds every transport route;
+  dock stops are the delay>0 nodes — pin docks on those, not on nearby
+  NPCs. TaxiPath.dbc (id, from, to, cost) separates real flight-master
+  nodes (two-way, costed) from scripted one-ways (single path, cost 0,
+  e.g. Steelwing's SW Harbor -> Balor SI:7 flight) and from dead nodes
+  with no paths at all (the removed 1.18 Elwynn gryphon still has its
+  TaxiNodes row). TaxiNodes mount fields 14/15 both 0 = inert.
+- **pfQuest-octo db forensics**: meta.lua categories (`flight`,
+  `meetingstone` — negative ids are objects) joined with units/objects
+  spawn data generate complete, server-true location sets. Meeting
+  stones stand at dungeon entrances. Custom-content NPC ids (5xxxx+)
+  vs stock ids matter: stock-id animals at a spot are ambient decor;
+  Turtle's rental system is the custom ids, and real rental spots
+  place them in pairs.
+- **Turtle's group finder** is baked into patch-4 as
+  `Interface\FrameXML\LFT\` (an addon-format module). Global entry
+  point `LFT_Toggle()`; `LFT_Data.lua` is the authoritative dungeon
+  level-range list (its keys also reveal content, e.g. Stormwrought's
+  two wings swc/swd). Dungeon-only — raids are not queueable.
+
+---
+
 ## 7. Primary sources worth bookmarking
 
 - townlong-yak.com/framexml/5875 — Blizzard's own 1.12 FrameXML; the
