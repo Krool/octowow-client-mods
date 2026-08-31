@@ -231,11 +231,23 @@ timer:SetScript("OnUpdate", function()
 	end
 end)
 
-local function RequestChallenges()
+-- Once silence has settled as "no challenges", auto re-queries (zone-in,
+-- paperdoll) drop to a single probe: without this, gotResponse stays false
+-- forever on a zero-challenge char and every loading screen re-fires the
+-- full 12-message burst at the server's chat-flood limiter.
+local function RequestChallenges(attempts)
 	gotResponse = false
-	retriesLeft = MAX_RETRIES
+	retriesLeft = attempts or MAX_RETRIES
 	timer.elapsed = RETRY_INTERVAL -- fire on next frame
 	timer:Show()
+end
+
+local function AutoRequestChallenges()
+	if settledNoAnswer then
+		RequestChallenges(1)
+	else
+		RequestChallenges()
+	end
 end
 
 local handler = CreateFrame("Frame")
@@ -247,7 +259,7 @@ handler:SetScript("OnEvent", function()
 		if not OctoChallengesDB then OctoChallengesDB = {} end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		Render() -- cached mask from a previous session, if any
-		RequestChallenges()
+		AutoRequestChallenges()
 	elseif event == "CHAT_MSG_ADDON" and arg1 == "RESPONSE_PLAYER_CHALLENGES" then
 		-- %d* not %d+: accept an empty mask ("guid:") as zero challenges
 		local _, _, guid, mask = string.find(arg2 or "", "^(.+):(%d*)$")
@@ -276,7 +288,7 @@ end)
 local origPaperDollOnShow = PaperDollFrame:GetScript("OnShow")
 PaperDollFrame:SetScript("OnShow", function()
 	if origPaperDollOnShow then origPaperDollOnShow() end
-	if not gotResponse then RequestChallenges() end
+	if not gotResponse then AutoRequestChallenges() end
 	Render()
 end)
 
