@@ -191,7 +191,7 @@ end
 
 -- ------------------------------------------------------------ protocol ------
 
-local warnedNoAnswer = false
+local settledNoAnswer = false
 
 local timer = CreateFrame("Frame")
 timer.elapsed = 0
@@ -206,11 +206,21 @@ timer:SetScript("OnUpdate", function()
 	end
 	if retriesLeft <= 0 then
 		timer:Hide()
-		-- Say so ONCE: a silent failure here reads as "no challenges", and
-		-- the character-select bake then quietly stays stale for this char.
-		if not warnedNoAnswer then
-			warnedNoAnswer = true
-			DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99OctoChallenges|r: the server never answered the challenge query - nothing cached for this character (character-select icons will be stale). /octochallenges to retry.")
+		-- The server does NOT reply for a character with zero active
+		-- challenges (verified 2026-08-31: every zero-challenge char times
+		-- out, every challenged char answers) - silence after a full retry
+		-- run IS the "no challenges" answer. Cache and mirror mask 0 so
+		-- character select stops showing stale/baked icons. Only when
+		-- nothing was ever cached; an existing mask is kept untouched
+		-- (a flood-dropped reply must not wipe real data).
+		if not settledNoAnswer then
+			settledNoAnswer = true
+			if not (OctoChallengesDB and OctoChallengesDB.mask) then
+				if not OctoChallengesDB then OctoChallengesDB = {} end
+				OctoChallengesDB.mask = 0
+				Render()
+				MirrorMask(0)
+			end
 		end
 		return
 	end
@@ -239,12 +249,13 @@ handler:SetScript("OnEvent", function()
 		Render() -- cached mask from a previous session, if any
 		RequestChallenges()
 	elseif event == "CHAT_MSG_ADDON" and arg1 == "RESPONSE_PLAYER_CHALLENGES" then
-		local _, _, guid, mask = string.find(arg2 or "", "^(.+):(%d+)$")
+		-- %d* not %d+: accept an empty mask ("guid:") as zero challenges
+		local _, _, guid, mask = string.find(arg2 or "", "^(.+):(%d*)$")
 		if guid and guid == GetPlayerGuid() then
 			gotResponse = true
 			if not OctoChallengesDB then OctoChallengesDB = {} end
 			local old = OctoChallengesDB.mask
-			OctoChallengesDB.mask = tonumber(mask)
+			OctoChallengesDB.mask = tonumber(mask) or 0
 			Render()
 			local mirrored = MirrorMask(OctoChallengesDB.mask)
 			-- Announce a NEW or CHANGED cache (a silent failure here used to
