@@ -2,14 +2,15 @@
 # status" scheduled task, via realm-status.vbs so no console window flashes).
 # Two jobs:
 #
-# 1. Realm status: fetches octowow.st's realm list into
+# 1. Realm status: probes the world-server TCP ports on play.octowow.st into
 #    CustomData\octoglue-realmstatus so OctoGlue can show WORLD server status
 #    on the login screen. The glue VM has no network primitives beyond
 #    DefaultServerLogin and the probe's throwaway account never reaches the
-#    realm list, so the website is the only source, and only the nampower
-#    ReadCustomFile API can carry it into glue. Format, one ASCII line:
+#    realm list, so an outside check is the only source, and only the
+#    nampower ReadCustomFile API can carry it into glue. Format, one ASCII
+#    line:
 #      v1|<HH:mm>|<online>/<total>|<Name>=<UP|DOWN>,...
-#      v1|<HH:mm>|?|fetch failed        (site unreachable or markup changed)
+#      v1|<HH:mm>|?|net down            (our own uplink is down, not theirs)
 #
 # 2. Challenge-mask mirror (v25): copies per-character masks from the
 #    OctoChallenges addon's SavedVariables into
@@ -30,23 +31,50 @@ $dir = Join-Path $wow "CustomData"
 if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }
 
 # ---- 1. realm status ----
+# 2026-08-31: octowow.st moved behind a BlazingFast JS challenge that plain
+# HTTP cannot pass (the page only renders in a real browser), so the old
+# website scrape is dead. Realm status now comes from direct TCP probes of
+# the world-server ports on the game host: a port accepts connections only
+# while its world server process is listening, which is exactly the layer
+# the 2026-08-24 outage broke (auth up, worlds down). Ports found from the
+# live client connection (N'Zoth = 8091 confirmed in netstat); the
+# C'Thun=8090 / Y'Shaarj=8092 assignment follows the website's realm order
+# and is UNVERIFIED - confirm the names during the next partial outage.
+# Caveat (same as the glue probe's v22 lesson): a dying host that still
+# accepts TCP reads UP; only a dead listener reads DOWN.
 $out = Join-Path $dir "octoglue-realmstatus"
 $stamp = Get-Date -Format "HH:mm"
-try {
-    $html = (Invoke-WebRequest -Uri "https://octowow.st/" -UseBasicParsing -TimeoutSec 15).Content
-    $realms = @()
-    $rx = '(?s)<div class="realm-row">.*?<div class="realm-name">\s*(.+?)\s*<span.*?<div class="realm-status (\w+)">'
-    foreach ($m in [regex]::Matches($html, $rx)) {
-        $name = $m.Groups[1].Value -replace '&#039;', "'" -replace '<[^>]+>', ''
-        $name = ($name -replace '\s+', ' ').Trim()
-        $st = if ($m.Groups[2].Value -ieq 'online') { 'UP' } else { 'DOWN' }
-        $realms += "$name=$st"
+$gameHost = "play.octowow.st"
+$realmPorts = @(
+    @{ Name = "C'Thun";   Port = 8090 },
+    @{ Name = "N'Zoth";   Port = 8091 },
+    @{ Name = "Y'Shaarj"; Port = 8092 }
+)
+
+function Test-TcpPort($tcpHost, $port, $timeoutMs) {
+    $t = New-Object Net.Sockets.TcpClient
+    try { return ($t.ConnectAsync($tcpHost, $port).Wait($timeoutMs) -and $t.Connected) }
+    catch { return $false }
+    finally { $t.Close() }
+}
+
+$realms = @()
+$on = 0
+foreach ($r in $realmPorts) {
+    if (Test-TcpPort $gameHost $r.Port 4000) {
+        $realms += "$($r.Name)=UP"
+        $on++
+    } else {
+        $realms += "$($r.Name)=DOWN"
     }
-    if ($realms.Count -eq 0) { throw "no realm rows parsed" }
-    $on = @($realms | Where-Object { $_ -match '=UP$' }).Count
-    $line = "v1|$stamp|$on/$($realms.Count)|$($realms -join ',')"
-} catch {
-    $line = "v1|$stamp|?|fetch failed"
+}
+if ($on -eq 0 -and -not (Test-TcpPort "one.one.one.one" 443 4000)) {
+    # Nothing reachable AND a known-good host is also unreachable: that is
+    # OUR network being down, not the realms - report unknown, never 0/3
+    # (glue paints 0/3 as a red "realms are DOWN" override).
+    $line = "v1|$stamp|?|net down"
+} else {
+    $line = "v1|$stamp|$on/$($realmPorts.Count)|$($realms -join ',')"
 }
 Set-Content -Path $out -Value $line -Encoding ASCII
 
